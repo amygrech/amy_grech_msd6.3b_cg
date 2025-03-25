@@ -87,9 +87,7 @@ public class BoardManager : MonoBehaviourSingleton<BoardManager> {
             return;
         }
         GameObject pieceGO = Instantiate(piecePrefab, positionMap[position].transform);
-        var netObj = pieceGO.GetComponent<Unity.Netcode.NetworkObject>();
-        if (netObj != null)
-            netObj.Spawn();
+        pieceGO.transform.localPosition = Vector3.zero;
     }
 
     public void GetSquareGOsWithinRadius(List<GameObject> squareGOs, Vector3 positionWS, float radius) {
