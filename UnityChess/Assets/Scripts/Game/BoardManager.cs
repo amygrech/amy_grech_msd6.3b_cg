@@ -87,9 +87,6 @@ public class BoardManager : MonoBehaviourSingleton<BoardManager> {
             return;
         }
         GameObject pieceGO = Instantiate(piecePrefab, positionMap[position].transform);
-        pieceGO.transform.localPosition = Vector3.zero;
-        
-        // If the piece has a NetworkObject component, spawn it to sync across the network.
         var netObj = pieceGO.GetComponent<Unity.Netcode.NetworkObject>();
         if (netObj != null)
             netObj.Spawn();
