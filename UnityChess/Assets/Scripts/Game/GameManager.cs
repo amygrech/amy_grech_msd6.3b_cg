@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Unity.Netcode;
 using UnityChess;
 using UnityEngine;
 
@@ -280,36 +279,6 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 	/// <param name="choice">The elected promotion piece.</param>
 	public void ElectPiece(ElectedPiece choice) {
 		userPromotionChoice = choice;
-	}
-	
-	[ServerRpc(RequireOwnership = false)]
-	public void RequestChessMoveServerRpc(string startSquareName, string targetSquareName, ulong pieceNetworkId, ServerRpcParams rpcParams = default) {
-		if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(pieceNetworkId, out NetworkObject pieceObj)) {
-			Debug.LogWarning("GameManager: Piece with NetworkObjectId " + pieceNetworkId + " not found.");
-			return;
-		}
-		Transform pieceTransform = pieceObj.transform;
-		Square startSquare = new Square(startSquareName);
-		Square targetSquare = new Square(targetSquareName);
-
-		GameObject targetSquareGO = BoardManager.Instance.GetSquareGOByPosition(targetSquare);
-		if (targetSquareGO == null) {
-			Debug.LogWarning("GameManager: Target square GameObject for " + targetSquareName + " not found.");
-			return;
-		}
-		Transform targetSquareTransform = targetSquareGO.transform;
-
-		OnPieceMoved(startSquare, pieceTransform, targetSquareTransform, null);
-
-		Vector3 newPosition = targetSquareTransform.position;
-		UpdatePiecePositionClientRpc(pieceNetworkId, newPosition);
-	}
-
-	[ClientRpc]
-	public void UpdatePiecePositionClientRpc(ulong pieceNetworkId, Vector3 newPosition, ClientRpcParams rpcParams = default) {
-		if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(pieceNetworkId, out NetworkObject pieceObj)) {
-			pieceObj.transform.position = newPosition;
-		}
 	}
 
 	/// <summary>
