@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityChess;
 using UnityEngine;
+using Unity.Netcode;
 
 /// <summary>
 /// Manages the overall game state, including game start, moves execution,
@@ -16,6 +17,9 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 	public static event Action GameEndedEvent;
 	public static event Action GameResetToHalfMoveEvent;
 	public static event Action MoveExecutedEvent;
+	
+	private NetworkGameManager networkGameManager;
+	private bool isNetworkedGame = false;
 	
 	/// <summary>
 	/// Gets the current board state from the game.
@@ -116,14 +120,18 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 			[GameSerializationType.FEN] = new FENSerializer(),
 			[GameSerializationType.PGN] = new PGNSerializer()
 		};
-		
+    
+		// Check if we have a NetworkGameManager component
+		networkGameManager = GetComponent<NetworkGameManager>();
+		isNetworkedGame = networkGameManager != null && NetworkManager.Singleton.IsConnectedClient;
+    
 		// Begin a new game.
 		StartNewGame();
-		
+    
 #if DEBUG_VIEW
-		// Enable debug view if compiled with DEBUG_VIEW flag.
-		unityChessDebug.gameObject.SetActive(true);
-		unityChessDebug.enabled = true;
+    // Enable debug view if compiled with DEBUG_VIEW flag.
+    unityChessDebug.gameObject.SetActive(true);
+    unityChessDebug.enabled = true;
 #endif
 	}
 	
@@ -132,7 +140,17 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 	/// </summary>
 	public async void StartNewGame() {
 		game = new Game();
-		NewGameStartedEvent?.Invoke();
+    
+		// If we're in a networked game and we're the client (not host),
+		// we don't want to notify about the new game until we get state from the host
+		if (!isNetworkedGame || NetworkManager.Singleton.IsHost) {
+			NewGameStartedEvent?.Invoke();
+		}
+    
+		// If we're in a networked game and we're the host, broadcast the new game
+		if (isNetworkedGame && NetworkManager.Singleton.IsHost && networkGameManager != null) {
+			networkGameManager.StartNewGameServerRpc();
+		}
 	}
 
 	/// <summary>
@@ -182,7 +200,7 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 
 		// Retrieve the latest half-move from the timeline.
 		HalfMoveTimeline.TryGetCurrent(out HalfMove latestHalfMove);
-		
+    
 		// If the latest move resulted in checkmate or stalemate, disable further moves.
 		if (latestHalfMove.CausedCheckmate || latestHalfMove.CausedStalemate) {
 			BoardManager.Instance.SetActiveAllPieces(false);
@@ -194,6 +212,12 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 
 		// Signal that a move has been executed.
 		MoveExecutedEvent?.Invoke();
+    
+		// If we're in a networked game and this is the host, broadcast the move
+		if (isNetworkedGame && NetworkManager.Singleton.IsHost && networkGameManager != null) {
+			NetworkGameManager.MoveData moveData = NetworkGameManager.ConvertToMoveData(move);
+			networkGameManager.ExecuteMoveServerRpc(moveData);
+		}
 
 		return true;
 	}
@@ -290,8 +314,19 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 	/// <param name="closestBoardSquareTransform">The transform of the closest board square.</param>
 	/// <param name="promotionPiece">Optional promotion piece (used in pawn promotion).</param>
 	private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedPieceTransform, Transform closestBoardSquareTransform, Piece promotionPiece = null) {
-		// Determine the destination square based on the name of the closest board square transform.
-		Square endSquare = new Square(closestBoardSquareTransform.name);
+			// In networked games, check if this player can move this piece
+			if (isNetworkedGame) {
+				Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
+				// Check if this is the player's turn and piece
+				if (!ChessNetworkManager.Instance.CanMoveCurrentPiece(movedPiece.Owner)) {
+					// If not, reset the piece's position and exit
+					movedPieceTransform.position = movedPieceTransform.parent.position;
+					return;
+				}
+			}
+
+			// Determine the destination square based on the name of the closest board square transform.
+			Square endSquare = new Square(closestBoardSquareTransform.name);
 
 		// Attempt to retrieve a legal move from the game logic.
 		if (!game.TryGetLegalMove(movedPieceInitialSquare, endSquare, out Movement move)) {
