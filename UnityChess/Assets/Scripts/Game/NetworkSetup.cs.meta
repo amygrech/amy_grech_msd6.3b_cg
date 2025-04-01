@@ -3,7 +3,9 @@ guid: c0a1b7ea6af1045ad858c7c6f74f9e48
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
-  defaultReferences: []
+  defaultReferences:
+  - networkManagerPrefab: {fileID: 8881689184527694679, guid: cda08e76c1f904aff9eb1c1b2e4c6176,
+      type: 3}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 

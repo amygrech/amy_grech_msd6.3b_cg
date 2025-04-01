@@ -152,8 +152,24 @@ public class NetworkBoardManager : NetworkBehaviour {
     /// <summary>
     /// Spawns all network pieces based on the current game state.
     /// </summary>
-    private void SpawnAllNetworkPieces() {
-        foreach ((Square square, Piece piece) in GameManager.Instance.CurrentPieces) {
+    private void SpawnAllNetworkPieces()
+    {
+        // First, make sure we don't have any active NetworkObjects from chess pieces
+        VisualPiece[] existingPieces = FindObjectsOfType<VisualPiece>();
+        foreach (VisualPiece piece in existingPieces)
+        {
+            NetworkObject netObj = piece.GetComponent<NetworkObject>();
+            if (netObj != null && netObj.enabled)
+            {
+                // Disable the NetworkObject component to prevent conflicts
+                netObj.enabled = false;
+                Debug.Log($"Disabled conflicting NetworkObject on {piece.name}");
+            }
+        }
+    
+        // Now spawn new pieces with proper network registration
+        foreach ((Square square, Piece piece) in GameManager.Instance.CurrentPieces)
+        {
             SpawnNetworkPiece(piece, square);
         }
     }
@@ -342,3 +358,4 @@ public class NetworkBoardManager : NetworkBehaviour {
         return null;
     }
 }
+

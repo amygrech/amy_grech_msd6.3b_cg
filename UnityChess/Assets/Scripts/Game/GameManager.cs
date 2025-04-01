@@ -313,36 +313,34 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 	/// <param name="movedPieceTransform">The transform of the moved piece.</param>
 	/// <param name="closestBoardSquareTransform">The transform of the closest board square.</param>
 	/// <param name="promotionPiece">Optional promotion piece (used in pawn promotion).</param>
-	private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedPieceTransform, Transform closestBoardSquareTransform, Piece promotionPiece = null) {
-			// In networked games, check if this player can move this piece
-			if (isNetworkedGame) {
-				Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
-				// Check if this is the player's turn and piece
-				if (!ChessNetworkManager.Instance.CanMoveCurrentPiece(movedPiece.Owner)) {
-					// If not, reset the piece's position and exit
-					movedPieceTransform.position = movedPieceTransform.parent.position;
-					return;
-				}
-			}
+	private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedPieceTransform,
+		Transform closestBoardSquareTransform, Piece promotionPiece = null)
+	{
+		// Determine the destination square based on the name of the closest board square transform.
+		Square endSquare = new Square(closestBoardSquareTransform.name);
 
-			// Determine the destination square based on the name of the closest board square transform.
-			Square endSquare = new Square(closestBoardSquareTransform.name);
+		// Check if this piece has a NetworkObject component
+		Unity.Netcode.NetworkObject networkObject = movedPieceTransform.GetComponent<Unity.Netcode.NetworkObject>();
+		bool isNetworkedPiece = networkObject != null && Unity.Netcode.NetworkManager.Singleton != null &&
+		                        Unity.Netcode.NetworkManager.Singleton.IsListening;
 
 		// Attempt to retrieve a legal move from the game logic.
-		if (!game.TryGetLegalMove(movedPieceInitialSquare, endSquare, out Movement move)) {
+		if (!game.TryGetLegalMove(movedPieceInitialSquare, endSquare, out Movement move))
+		{
 			// If no legal move is found, reset the piece's position.
 			movedPieceTransform.position = movedPieceTransform.parent.position;
 #if DEBUG_VIEW
-			// In debug view, log the legal moves for further analysis.
-			Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
-			game.TryGetLegalMovesForPiece(movedPiece, out ICollection<Movement> legalMoves);
-			UnityChessDebug.ShowLegalMovesInLog(legalMoves);
+        // In debug view, log the legal moves for further analysis.
+        Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
+        game.TryGetLegalMovesForPiece(movedPiece, out ICollection<Movement> legalMoves);
+        UnityChessDebug.ShowLegalMovesInLog(legalMoves);
 #endif
 			return;
 		}
 
 		// If the move is a promotion move, set the promotion piece.
-		if (move is PromotionMove promotionMove) {
+		if (move is PromotionMove promotionMove)
+		{
 			promotionMove.SetPromotionPiece(promotionPiece);
 		}
 
@@ -350,21 +348,46 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 		// and the move executes successfully...
 		if ((move is not SpecialMove specialMove || await TryHandleSpecialMoveBehaviourAsync(specialMove))
 		    && TryExecuteMove(move)
-		) {
+		   )
+		{
 			// For non-special moves, update the board visuals by destroying any piece at the destination.
-			if (move is not SpecialMove) { BoardManager.Instance.TryDestroyVisualPiece(move.End); }
+			if (move is not SpecialMove)
+			{
+				BoardManager.Instance.TryDestroyVisualPiece(move.End);
+			}
 
 			// For promotion moves, update the moved piece transform to the newly created visual piece.
-			if (move is PromotionMove) {
+			if (move is PromotionMove)
+			{
 				movedPieceTransform = BoardManager.Instance.GetPieceGOAtPosition(move.End).transform;
 			}
 
-			// Re-parent the moved piece to the destination square and update its position.
-			movedPieceTransform.parent = closestBoardSquareTransform;
-			movedPieceTransform.position = closestBoardSquareTransform.position;
+			// Special handling for networked pieces
+			if (isNetworkedPiece)
+			{
+				// For networked pieces, we need to handle the reparenting differently
+				// We'll first move the piece to the right position without changing the parent
+				movedPieceTransform.position = closestBoardSquareTransform.position;
+
+				// Then notify the NetworkBoardManager to handle the parent change properly
+				NetworkBoardManager networkBoardManager = FindObjectOfType<NetworkBoardManager>();
+				if (networkBoardManager != null)
+				{
+					networkBoardManager.MovePieceServerRpc(
+						movedPieceInitialSquare.File, movedPieceInitialSquare.Rank,
+						endSquare.File, endSquare.Rank
+					);
+				}
+			}
+			else
+			{
+				// For non-networked pieces, we can change the parent directly
+				movedPieceTransform.parent = closestBoardSquareTransform;
+				movedPieceTransform.position = closestBoardSquareTransform.position;
+			}
 		}
 	}
-	
+
 	/// <summary>
 	/// Determines whether the specified piece has any legal moves.
 	/// </summary>

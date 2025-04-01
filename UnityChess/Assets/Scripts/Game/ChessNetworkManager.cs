@@ -1,11 +1,11 @@
-using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityChess;
 
 /// <summary>
-/// Fixed version of ChessNetworkManager that handles the initial network setup properly.
+/// Manages the network connectivity for the chess game.
+/// Handles hosting, joining, and disconnecting from network sessions.
 /// </summary>
 public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     [Header("Network UI")]
@@ -22,7 +22,6 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
 
     // Track the local player's side
     private Side localPlayerSide = Side.White;
-    private bool gameStarted = false;
 
     private void Start() {
         // Set up event listeners
@@ -31,12 +30,8 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (disconnectButton != null) disconnectButton.onClick.AddListener(Disconnect);
 
         // Subscribe to network events
-        if (NetworkManager.Singleton != null) {
-            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
-            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
-        } else {
-            Debug.LogError("NetworkManager.Singleton is null. Make sure the NetworkManager is in the scene.");
-        }
+        NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+        NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
 
         // Ensure the disconnect button is initially disabled
         if (disconnectButton != null) disconnectButton.enabled = false;
@@ -47,100 +42,63 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         UpdateConnectionStatus("Not Connected");
     }
 
-    private void OnDestroy() {
-        // Unsubscribe from network events
-        if (NetworkManager.Singleton != null) {
-            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
-            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
-        }
-    }
-
     /// <summary>
     /// Starts a network session as the host.
     /// </summary>
-    public void StartHost() {
-        if (NetworkManager.Singleton == null) {
-            Debug.LogError("NetworkManager.Singleton is null. Cannot start host.");
-            return;
-        }
-
-        // Make sure scene objects are registered before starting the host
-        RegisterSceneNetworkObjects();
-
-        // Start the host
-        if (NetworkManager.Singleton.StartHost()) {
+    public void StartHost()
+    {
+        // Clean up NetworkObjects before starting host
+        CleanupNetworkObjectsBeforeStart();
+    
+        if (NetworkManager.Singleton.StartHost())
+        {
             localPlayerSide = Side.White;
-            
+        
             // Hide the network panel after successful connection
             if (networkPanel != null) networkPanel.SetActive(false);
             if (disconnectButton != null) disconnectButton.enabled = true;
             if (hostButton != null) hostButton.enabled = false;
             if (clientButton != null) clientButton.enabled = false;
-            
+        
             UpdateConnectionStatus("Hosting");
-            
-            // Start a new game after a short delay
-            Invoke("StartNetworkGame", 0.5f);
-        } else {
-            UpdateConnectionStatus("Failed to start host");
+        
+            // Start a new game
+            GameManager.Instance.StartNewGame();
         }
     }
 
-    /// <summary>
-    /// Joins an existing network session as a client.
-    /// </summary>
-    public void StartClient() {
-        if (NetworkManager.Singleton == null) {
-            Debug.LogError("NetworkManager.Singleton is null. Cannot start client.");
-            return;
-        }
-
-        // Make sure scene objects are registered before starting the client
-        RegisterSceneNetworkObjects();
-
-        // Start the client
-        if (NetworkManager.Singleton.StartClient()) {
+    public void StartClient()
+    {
+        // Clean up NetworkObjects before starting client
+        CleanupNetworkObjectsBeforeStart();
+    
+        if (NetworkManager.Singleton.StartClient())
+        {
             localPlayerSide = Side.Black;
-            
+        
             // Hide the network panel after attempting connection
             if (networkPanel != null) networkPanel.SetActive(false);
             if (disconnectButton != null) disconnectButton.enabled = true;
             if (hostButton != null) hostButton.enabled = false;
             if (clientButton != null) clientButton.enabled = false;
-            
+        
             UpdateConnectionStatus("Connecting...");
-        } else {
-            UpdateConnectionStatus("Failed to start client");
         }
     }
 
-    /// <summary>
-    /// Registers all scene network objects to prevent duplicate ID issues.
-    /// </summary>
-    private void RegisterSceneNetworkObjects() {
-        // Get all NetworkObjects in the scene
-        NetworkObject[] networkObjects = FindObjectsOfType<NetworkObject>();
-        
-        Debug.Log($"Found {networkObjects.Length} NetworkObjects in scene");
-        
-        // Make sure they all have unique GlobalObjectIdHash values
-        HashSet<uint> seenIds = new HashSet<uint>();
-        foreach (NetworkObject netObj in networkObjects) {
-            if (seenIds.Contains(netObj.GlobalObjectIdHash)) {
-                Debug.LogWarning($"Duplicate GlobalObjectIdHash found: {netObj.name} has ID {netObj.GlobalObjectIdHash}");
-            } else {
-                seenIds.Add(netObj.GlobalObjectIdHash);
+    private void CleanupNetworkObjectsBeforeStart()
+    {
+        // Find all NetworkObjects on chess pieces
+        VisualPiece[] pieces = FindObjectsOfType<VisualPiece>();
+        foreach (VisualPiece piece in pieces)
+        {
+            NetworkObject netObj = piece.GetComponent<NetworkObject>();
+            if (netObj != null)
+            {
+                // Disable NetworkObject components to prevent auto-registration
+                netObj.enabled = false;
+                Debug.Log($"Disabled NetworkObject on {piece.name} before starting network");
             }
-        }
-    }
-
-    /// <summary>
-    /// Starts the network game after connection is established.
-    /// </summary>
-    private void StartNetworkGame() {
-        if (!gameStarted && NetworkManager.Singleton.IsHost) {
-            gameStarted = true;
-            GameManager.Instance.StartNewGame();
         }
     }
 
@@ -148,9 +106,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Disconnects from the current network session.
     /// </summary>
     public void Disconnect() {
-        if (NetworkManager.Singleton != null) {
-            NetworkManager.Singleton.Shutdown();
-        }
+        NetworkManager.Singleton.Shutdown();
         
         // Show the network panel again
         if (networkPanel != null) networkPanel.SetActive(true);
@@ -159,7 +115,6 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (clientButton != null) clientButton.enabled = true;
         
         UpdateConnectionStatus("Disconnected");
-        gameStarted = false;
     }
 
     /// <summary>
@@ -168,36 +123,16 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     private void OnClientConnected(ulong clientId) {
         if (clientId == NetworkManager.Singleton.LocalClientId) {
             UpdateConnectionStatus(NetworkManager.Singleton.IsHost ? "Hosting" : "Connected as Client");
-            
-            // If we're the client, we should disable all the pieces initially
-            if (!NetworkManager.Singleton.IsHost) {
-                DisableAllPiecesTemporarily();
-            }
         } else {
             // A remote client connected
             UpdateConnectionStatus("Player Connected");
             
             // If we're the host, sync the game state to the new client
             if (NetworkManager.Singleton.IsHost) {
-                SyncGameStateClientRpc();
+                string serializedGame = GameManager.Instance.SerializeGame();
+                SyncGameStateClientRpc(serializedGame);
             }
         }
-    }
-
-    /// <summary>
-    /// Temporarily disables all pieces until game state is synchronized.
-    /// </summary>
-    private void DisableAllPiecesTemporarily() {
-        BoardManager.Instance.SetActiveAllPieces(false);
-        // Re-enable pieces after the game state is synced
-        Invoke("EnableCorrectPieces", 1.0f);
-    }
-
-    /// <summary>
-    /// Enables only the pieces that the client should be able to move.
-    /// </summary>
-    private void EnableCorrectPieces() {
-        BoardManager.Instance.EnsureOnlyPiecesOfSideAreEnabled(localPlayerSide);
     }
 
     /// <summary>
@@ -207,7 +142,6 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (clientId == NetworkManager.Singleton.LocalClientId) {
             // We disconnected
             UpdateConnectionStatus("Disconnected");
-            gameStarted = false;
         } else {
             // Remote client disconnected
             UpdateConnectionStatus("Player Disconnected");
@@ -235,12 +169,10 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Syncs the current game state to all clients.
     /// </summary>
     [ClientRpc]
-    public void SyncGameStateClientRpc() {
+    public void SyncGameStateClientRpc(string serializedGameState) {
         if (!NetworkManager.Singleton.IsHost) {
-            // Load the serialized game state from the host
-            string serializedGame = GameManager.Instance.SerializeGame();
-            GameManager.Instance.LoadGame(serializedGame);
-            
+            // Load the state passed from the host
+            GameManager.Instance.LoadGame(serializedGameState);
             // Make sure only the correct pieces are enabled
             BoardManager.Instance.EnsureOnlyPiecesOfSideAreEnabled(localPlayerSide);
         }
@@ -251,7 +183,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// </summary>
     public bool CanMoveCurrentPiece(Side pieceSide) {
         // In single player mode, allow moving any piece
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) {
+        if (!NetworkManager.Singleton.IsConnectedClient) {
             return true;
         }
 
@@ -267,7 +199,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (!NetworkManager.Singleton.IsHost) {
             // Apply the move on the client side
             GameManager.Instance.LoadGame(serializedMove);
-            
+        
             // Make sure only the correct pieces are enabled after the move
             BoardManager.Instance.EnsureOnlyPiecesOfSideAreEnabled(localPlayerSide);
         }
