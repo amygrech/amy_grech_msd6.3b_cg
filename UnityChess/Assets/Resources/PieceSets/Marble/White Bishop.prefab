@@ -13,7 +13,6 @@ GameObject:
   - component: {fileID: 23124421681921648}
   - component: {fileID: 114195670158729800}
   - component: {fileID: 1080275371}
-  - component: {fileID: -6879512209385201894}
   m_Layer: 0
   m_Name: White Bishop
   m_TagString: Untagged
@@ -120,24 +119,3 @@ SphereCollider:
   serializedVersion: 3
   m_Radius: 1.3947477
   m_Center: {x: 0, y: 1.3975194, z: 0.000000029802322}
---- !u!114 &-6879512209385201894
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1332266116160360}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 3765565980
-  InScenePlacedSourceGlobalObjectIdHash: 0
-  AlwaysReplicateAsRoot: 0
-  SynchronizeTransform: 1
-  ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 1
-  SpawnWithObservers: 1
-  DontDestroyWithOwner: 0
-  AutoObjectParentSync: 1

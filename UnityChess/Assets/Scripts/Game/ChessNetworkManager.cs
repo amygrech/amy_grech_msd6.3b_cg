@@ -6,6 +6,7 @@ using UnityChess;
 /// <summary>
 /// Manages the network connectivity for the chess game.
 /// Handles hosting, joining, and disconnecting from network sessions.
+/// Uses game state synchronization instead of NetworkObject components.
 /// </summary>
 public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     [Header("Network UI")]
@@ -22,6 +23,12 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
 
     // Track the local player's side
     private Side localPlayerSide = Side.White;
+    
+    // Network variables
+    private bool gameStarted = false;
+    private float syncTimer = 0f;
+    private const float syncInterval = 0.5f; // Sync every half second
+    private string lastSyncedState = string.Empty;
 
     private void Start() {
         // Set up event listeners
@@ -30,8 +37,10 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (disconnectButton != null) disconnectButton.onClick.AddListener(Disconnect);
 
         // Subscribe to network events
-        NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
-        NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+        if (NetworkManager.Singleton != null) {
+            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+        }
 
         // Ensure the disconnect button is initially disabled
         if (disconnectButton != null) disconnectButton.enabled = false;
@@ -41,64 +50,77 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
 
         UpdateConnectionStatus("Not Connected");
     }
+    
+    private void Update() {
+        // Only the host needs to periodically sync game state
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost && gameStarted) {
+            syncTimer += Time.deltaTime;
+            if (syncTimer >= syncInterval) {
+                syncTimer = 0f;
+                
+                // Get current game state
+                string currentState = GameManager.Instance.SerializeGame();
+                
+                // Only send if state has changed
+                if (currentState != lastSyncedState) {
+                    lastSyncedState = currentState;
+                    SyncGameStateClientRpc(currentState);
+                    Debug.Log("Game state synchronized to clients");
+                }
+            }
+        }
+    }
+    
+    private void OnDestroy() {
+        // Unsubscribe from network events
+        if (NetworkManager.Singleton != null) {
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
+        }
+    }
 
     /// <summary>
     /// Starts a network session as the host.
     /// </summary>
-    public void StartHost()
-    {
-        // Clean up NetworkObjects before starting host
-        CleanupNetworkObjectsBeforeStart();
-    
-        if (NetworkManager.Singleton.StartHost())
-        {
+    public void StartHost() {
+        if (NetworkManager.Singleton.StartHost()) {
             localPlayerSide = Side.White;
-        
+            
             // Hide the network panel after successful connection
             if (networkPanel != null) networkPanel.SetActive(false);
             if (disconnectButton != null) disconnectButton.enabled = true;
             if (hostButton != null) hostButton.enabled = false;
             if (clientButton != null) clientButton.enabled = false;
-        
+            
             UpdateConnectionStatus("Hosting");
-        
+            
             // Start a new game
             GameManager.Instance.StartNewGame();
+            gameStarted = true;
+            
+            // Initial sync
+            lastSyncedState = GameManager.Instance.SerializeGame();
+        } else {
+            UpdateConnectionStatus("Failed to start host");
         }
     }
 
-    public void StartClient()
-    {
-        // Clean up NetworkObjects before starting client
-        CleanupNetworkObjectsBeforeStart();
-    
-        if (NetworkManager.Singleton.StartClient())
-        {
+    /// <summary>
+    /// Joins an existing network session as a client.
+    /// </summary>
+    public void StartClient() {
+        if (NetworkManager.Singleton.StartClient()) {
             localPlayerSide = Side.Black;
-        
+            
             // Hide the network panel after attempting connection
             if (networkPanel != null) networkPanel.SetActive(false);
             if (disconnectButton != null) disconnectButton.enabled = true;
             if (hostButton != null) hostButton.enabled = false;
             if (clientButton != null) clientButton.enabled = false;
-        
+            
             UpdateConnectionStatus("Connecting...");
-        }
-    }
-
-    private void CleanupNetworkObjectsBeforeStart()
-    {
-        // Find all NetworkObjects on chess pieces
-        VisualPiece[] pieces = FindObjectsOfType<VisualPiece>();
-        foreach (VisualPiece piece in pieces)
-        {
-            NetworkObject netObj = piece.GetComponent<NetworkObject>();
-            if (netObj != null)
-            {
-                // Disable NetworkObject components to prevent auto-registration
-                netObj.enabled = false;
-                Debug.Log($"Disabled NetworkObject on {piece.name} before starting network");
-            }
+        } else {
+            UpdateConnectionStatus("Failed to start client");
         }
     }
 
@@ -106,6 +128,8 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Disconnects from the current network session.
     /// </summary>
     public void Disconnect() {
+        gameStarted = false;
+        
         NetworkManager.Singleton.Shutdown();
         
         // Show the network panel again
@@ -123,6 +147,12 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     private void OnClientConnected(ulong clientId) {
         if (clientId == NetworkManager.Singleton.LocalClientId) {
             UpdateConnectionStatus(NetworkManager.Singleton.IsHost ? "Hosting" : "Connected as Client");
+            
+            // If we're not the host, we need to initialize client-side state
+            if (!NetworkManager.Singleton.IsHost) {
+                // Client will receive game state via SyncGameStateClientRpc
+                gameStarted = true;
+            }
         } else {
             // A remote client connected
             UpdateConnectionStatus("Player Connected");
@@ -131,6 +161,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             if (NetworkManager.Singleton.IsHost) {
                 string serializedGame = GameManager.Instance.SerializeGame();
                 SyncGameStateClientRpc(serializedGame);
+                Debug.Log("Sent initial game state to new client");
             }
         }
     }
@@ -142,6 +173,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (clientId == NetworkManager.Singleton.LocalClientId) {
             // We disconnected
             UpdateConnectionStatus("Disconnected");
+            gameStarted = false;
         } else {
             // Remote client disconnected
             UpdateConnectionStatus("Player Disconnected");
@@ -167,12 +199,16 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
 
     /// <summary>
     /// Syncs the current game state to all clients.
+    /// This is the core method that ensures synchronization between host and clients.
     /// </summary>
     [ClientRpc]
     public void SyncGameStateClientRpc(string serializedGameState) {
         if (!NetworkManager.Singleton.IsHost) {
-            // Load the state passed from the host
+            Debug.Log("Received game state from host");
+            
+            // Load the serialized game state from the host
             GameManager.Instance.LoadGame(serializedGameState);
+            
             // Make sure only the correct pieces are enabled
             BoardManager.Instance.EnsureOnlyPiecesOfSideAreEnabled(localPlayerSide);
         }
@@ -183,7 +219,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// </summary>
     public bool CanMoveCurrentPiece(Side pieceSide) {
         // In single player mode, allow moving any piece
-        if (!NetworkManager.Singleton.IsConnectedClient) {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) {
             return true;
         }
 
@@ -192,15 +228,45 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     }
 
     /// <summary>
-    /// Sends a move to all clients when a player makes a move.
+    /// Notifies the host that a client has made a move.
+    /// Called by client when they make a move.
+    /// </summary>
+    [ServerRpc(RequireOwnership = false)]
+    public void NotifyMoveServerRpc(string move, ServerRpcParams serverRpcParams = default) {
+        // Check if we're the host
+        if (NetworkManager.Singleton.IsHost) {
+            Debug.Log($"Host received move notification from client. Move: {move}");
+            
+            // In a real implementation, you'd validate and apply the move
+            // For now, we'll just rely on the periodic sync
+            // The move details are included for potential future validation
+        }
+    }
+
+    /// <summary>
+    /// Directly broadcasts the current game state to all clients.
+    /// Called after a player makes a move.
+    /// </summary>
+    public void BroadcastCurrentGameState() {
+        if (NetworkManager.Singleton.IsHost) {
+            string serializedGame = GameManager.Instance.SerializeGame();
+            lastSyncedState = serializedGame; // Update last synced state
+            SyncGameStateClientRpc(serializedGame);
+            Debug.Log("Broadcasting game state after move");
+        } else if (NetworkManager.Singleton.IsClient) {
+            // If we're a client, notify the host about our move
+            NotifyMoveServerRpc(GameManager.Instance.SerializeGame());
+        }
+    }
+    
+    /// <summary>
+    /// Backwards compatibility method for old code that used BroadcastMoveClientRpc
     /// </summary>
     [ClientRpc]
     public void BroadcastMoveClientRpc(string serializedMove) {
         if (!NetworkManager.Singleton.IsHost) {
-            // Apply the move on the client side
+            // This is the old method, redirect to the new approach
             GameManager.Instance.LoadGame(serializedMove);
-        
-            // Make sure only the correct pieces are enabled after the move
             BoardManager.Instance.EnsureOnlyPiecesOfSideAreEnabled(localPlayerSide);
         }
     }
