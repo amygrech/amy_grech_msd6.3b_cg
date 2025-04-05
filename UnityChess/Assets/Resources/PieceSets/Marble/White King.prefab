@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 23639066967109124}
   - component: {fileID: 114031847458811920}
   - component: {fileID: 1762561525}
+  - component: {fileID: -1907050830434568697}
   m_Layer: 0
   m_Name: White King
   m_TagString: Untagged
@@ -119,3 +120,15 @@ SphereCollider:
   serializedVersion: 3
   m_Radius: 1.5688607
   m_Center: {x: 0.000000029802322, y: 1.5716318, z: -0.000000029802322}
+--- !u!114 &-1907050830434568697
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1031849599230294}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd42477936de9414b992c2a9686ee224, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 

@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 23549670697734330}
   - component: {fileID: 114514407703153092}
   - component: {fileID: 1088450300}
+  - component: {fileID: 2645137343732443392}
   m_Layer: 0
   m_Name: Black Rook
   m_TagString: Untagged
@@ -119,3 +120,15 @@ SphereCollider:
   serializedVersion: 3
   m_Radius: 0.9069151
   m_Center: {x: 0, y: 0.9098466, z: 0.00000011920929}
+--- !u!114 &2645137343732443392
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1451150441598584}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd42477936de9414b992c2a9686ee224, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 

@@ -307,7 +307,9 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 	/// <param name="movedPieceTransform">The transform of the moved piece.</param>
 	/// <param name="closestBoardSquareTransform">The transform of the closest board square.</param>
 	/// <param name="promotionPiece">Optional promotion piece (used in pawn promotion).</param>
-	private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedPieceTransform,
+	// Add these modifications to your GameManager.cs OnPieceMoved method to enforce turns
+
+private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedPieceTransform,
     Transform closestBoardSquareTransform, Piece promotionPiece = null)
 {
     // Determine the destination square based on the name of the closest board square transform.
@@ -318,10 +320,20 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
     {
         // Get the piece being moved
         Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
-        if (movedPiece != null && !ChessNetworkManager.Instance.CanMoveCurrentPiece(movedPiece.Owner))
+        if (movedPiece == null)
+        {
+            // No piece found - reset position
+            movedPieceTransform.position = movedPieceTransform.parent.position;
+            Debug.LogWarning("No piece found at the initial square");
+            return;
+        }
+        
+        // Check if this player is allowed to move this piece
+        if (!ChessNetworkManager.Instance.CanMoveCurrentPiece(movedPiece.Owner))
         {
             // Not this player's turn or piece - reset position
             movedPieceTransform.position = movedPieceTransform.parent.position;
+            Debug.Log($"Cannot move piece - Player: {ChessNetworkManager.Instance.GetLocalPlayerSide()}, Piece: {movedPiece.Owner}, Turn: {SideToMove}");
             return;
         }
     }
@@ -331,12 +343,6 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
     {
         // If no legal move is found, reset the piece's position.
         movedPieceTransform.position = movedPieceTransform.parent.position;
-#if DEBUG_VIEW
-        // In debug view, log the legal moves for further analysis.
-        Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
-        game.TryGetLegalMovesForPiece(movedPiece, out ICollection<Movement> legalMoves);
-        UnityChessDebug.ShowLegalMovesInLog(legalMoves);
-#endif
         return;
     }
 
@@ -349,8 +355,7 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
     // If the move is not a special move or its special behaviour is successfully handled,
     // and the move executes successfully...
     if ((move is not SpecialMove specialMove || await TryHandleSpecialMoveBehaviourAsync(specialMove))
-        && TryExecuteMove(move)
-       )
+        && TryExecuteMove(move))
     {
         // For non-special moves, update the board visuals by destroying any piece at the destination.
         if (move is not SpecialMove)
@@ -364,7 +369,7 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
             movedPieceTransform = BoardManager.Instance.GetPieceGOAtPosition(move.End).transform;
         }
 
-        // Update the visual board - changing the parent directly is safe since we removed NetworkObject components
+        // Update the visual board
         movedPieceTransform.SetParent(closestBoardSquareTransform);
         movedPieceTransform.localPosition = Vector3.zero;
 
@@ -373,10 +378,17 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
         {
             ChessNetworkManager.Instance.BroadcastCurrentGameState();
             Debug.Log("Broadcasting move: " + move.ToString());
+            
+            // After move, let the ChessNetworkManager handle updating piece interactivity
+            ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();
         }
     }
+    else
+    {
+        // Move failed for some reason - reset position
+        movedPieceTransform.position = movedPieceTransform.parent.position;
+    }
 }
-	
 	
 	/// <summary>
 	/// Determines whether the specified piece has any legal moves.
