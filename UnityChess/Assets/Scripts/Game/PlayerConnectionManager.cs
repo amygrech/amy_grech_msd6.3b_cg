@@ -214,15 +214,21 @@ public class PlayerConnectionManager : MonoBehaviour
         return null;
     }
     
-    /// <summary>
-    /// Request for a client to send their player name
-    /// </summary>
+    // *** New: Request player's name from a connected client ***
     [ServerRpc(RequireOwnership = false)]
-    private void RequestPlayerNameServerRpc(ulong clientId)
-    {
-        if (NetworkManager.Singleton.IsServer)
-        {
-            RequestPlayerNameClientRpc(clientId);
+    public void RequestPlayerNameServerRpc(ulong targetClientId) {
+        // This could trigger a ClientRpc to request the name if needed.
+        Debug.Log($"Requesting player name from client {targetClientId}");
+    }
+
+    // *** New: Receive the player's name from the client ***
+    [ServerRpc(RequireOwnership = false)]
+    public void SendPlayerNameServerRpc(string playerName) {
+        // Using the sender's client ID from the context.
+        ulong senderClientId = NetworkManager.Singleton.LocalClientId; // For demonstration; ideally use RpcContext.
+        if (players.ContainsKey(senderClientId)) {
+            players[senderClientId].PlayerName = playerName;
+            Debug.Log($"Received player name '{playerName}' from client {senderClientId}");
         }
     }
     
@@ -235,27 +241,6 @@ public class PlayerConnectionManager : MonoBehaviour
         if (NetworkManager.Singleton.LocalClientId == targetClientId)
         {
             SendPlayerNameServerRpc(localPlayerName);
-        }
-    }
-    
-    /// <summary>
-    /// Client sends their player name to the server
-    /// </summary>
-    [ServerRpc(RequireOwnership = false)]
-    private void SendPlayerNameServerRpc(string playerName)
-    {
-        if (NetworkManager.Singleton.IsServer)
-        {
-            ulong senderId = NetworkManager.Singleton.LocalClientId;
-            
-            if (players.TryGetValue(senderId, out PlayerInfo player))
-            {
-                player.PlayerName = playerName;
-                if (verbose) Debug.Log($"Updated player name: {playerName} for client {senderId}");
-                
-                // Broadcast the updated player name to all clients
-                BroadcastPlayerNameClientRpc(senderId, playerName);
-            }
         }
     }
     

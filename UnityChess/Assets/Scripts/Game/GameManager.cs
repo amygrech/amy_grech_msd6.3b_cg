@@ -275,6 +275,10 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
 			default:
 				return false;
 		}
+		
+		if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
+			ChessNetworkManager.Instance.BroadcastCurrentGameState();
+		}
 	}
 	
 	/// <summary>
@@ -374,13 +378,10 @@ private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedP
         movedPieceTransform.localPosition = Vector3.zero;
 
         // Broadcast the updated game state to all clients, if in a networked game
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient)
-        {
-            ChessNetworkManager.Instance.BroadcastCurrentGameState();
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
+            // Tell the network manager about the successful move
+            ChessNetworkManager.Instance.HandleSuccessfulMove();
             Debug.Log("Broadcasting move: " + move.ToString());
-            
-            // After move, let the ChessNetworkManager handle updating piece interactivity
-            ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();
         }
     }
     else
@@ -389,7 +390,6 @@ private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedP
         movedPieceTransform.position = movedPieceTransform.parent.position;
     }
 }
-	
 	/// <summary>
 	/// Determines whether the specified piece has any legal moves.
 	/// </summary>

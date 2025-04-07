@@ -265,13 +265,36 @@ public class NetworkErrorHandler : MonoBehaviour
     /// </summary>
     public bool ValidateJoinCode(string joinCode)
     {
+        Debug.Log($"Validating join code: '{joinCode}'");
+    
+        // Basic validation
+        if (string.IsNullOrEmpty(joinCode))
+        {
+            Debug.Log("Join code is empty");
+            ReportError(NetworkErrorType.JoinCodeInvalid, "Join code cannot be empty");
+            return false;
+        }
+    
+        // Accept "chessgame" as a valid join code
+        if (joinCode.ToLower() == "chessgame")
+        {
+            Debug.Log("Join code 'chessgame' is valid");
+            return true;
+        }
+        
         // Basic validation
         if (string.IsNullOrEmpty(joinCode))
         {
             ReportError(NetworkErrorType.JoinCodeInvalid, "Join code cannot be empty");
             return false;
         }
-        
+    
+        // Accept "chessgame" as a valid join code - make sure this is case insensitive
+        if (joinCode.ToLower() == "chessgame")
+        {
+            return true;
+        }
+    
         // For our implementation, join codes are IP:port or session codes
         if (joinCode.Contains(":"))
         {
@@ -286,7 +309,7 @@ public class NetworkErrorHandler : MonoBehaviour
         {
             // Session code format (for a more advanced implementation)
             // Here you would validate against a database or server
-            
+        
             // For now, we'll just do basic format validation
             // Assuming session codes are alphanumeric and 6 characters
             if (System.Text.RegularExpressions.Regex.IsMatch(joinCode, "^[A-Z0-9]{6}$"))
@@ -294,7 +317,7 @@ public class NetworkErrorHandler : MonoBehaviour
                 return true;
             }
         }
-        
+    
         ReportError(NetworkErrorType.JoinCodeInvalid, "Invalid join code format");
         return false;
     }

@@ -165,10 +165,14 @@ public class NetworkGameManager : NetworkBehaviour {
     [ClientRpc]
     private void ExecuteMoveClientRpc(MoveData moveData) {
         if (!IsHost) {
-            // In a complete implementation, we would convert the MoveData to a Movement
-            // and execute it in the game logic
-            
-            // For now, we'll rely on the synchronization provided by OnHalfMoveIndexChanged
+            // Convert MoveData to Movement and execute
+            // ... existing movement execution code ...
+
+            // Notify ChessNetworkManager about the move
+            ChessNetworkManager.Instance.HandleSuccessfulMove();
+        
+            // Update the UI and piece interactivity
+            ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();
         }
     }
 

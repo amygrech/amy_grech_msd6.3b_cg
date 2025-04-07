@@ -6,6 +6,7 @@ using Unity.Netcode;
 /// Controls chess piece interactivity based on network roles and turns.
 /// Add this component to all chess piece prefabs.
 /// </summary>
+[RequireComponent(typeof(VisualPiece))]
 public class ChessNetworkPieceController : MonoBehaviour
 {
     private VisualPiece visualPiece;
@@ -15,7 +16,6 @@ public class ChessNetworkPieceController : MonoBehaviour
     
     void Start()
     {
-        
         // Get the VisualPiece component
         visualPiece = GetComponent<VisualPiece>();
         if (visualPiece == null)
@@ -88,10 +88,7 @@ public class ChessNetworkPieceController : MonoBehaviour
             {
                 visualPiece.enabled = canMove;
                 
-                if (canMove)
-                {
-                    // Debug.Log($"Enabling piece: {visualPiece.PieceColor} {gameObject.name}");
-                }
+                Debug.Log($"Setting piece interactivity: {visualPiece.PieceColor} {gameObject.name} enabled={canMove}, Side={ChessNetworkManager.Instance.GetLocalPlayerSide()}");
             }
         }
     }

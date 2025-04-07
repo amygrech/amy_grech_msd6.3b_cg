@@ -1,0 +1,31 @@
+{
+  "project_info": {
+    "project_number": "539414043394",
+    "project_id": "dlcstore-8ccb3",
+    "storage_bucket": "dlcstore-8ccb3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:539414043394:ios:7087a7568e33ac8d33801b",
+        "android_client_info": {
+          "package_name": "com.mcast.chessgamedlc"
+        }
+      },
+      "api_key": [
+        {
+          "current_key": "AIzaSyA2cfFFHtSTnBu2ui3-THDk2eph2lSm4LE"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 0
+        },
+        "appinvite_service": {
+          "status": 1
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -13,6 +13,8 @@ using System;
 /// Enhanced with connection management features for player joining, leaving, and reconnection.
 /// </summary>
 public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
+    private NetworkTurnManager turnManager;
+    
     [Header("Network UI")]
     [SerializeField] private GameObject networkPanel;
     [SerializeField] private Button hostButton;
@@ -54,7 +56,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     // Network variables
     private bool gameStarted = false;
     private float syncTimer = 0f;
-    private const float syncInterval = 0.2f; // Sync 5 times per second
+    private const float syncInterval = 0.1f; // Sync 10 times per second for better responsiveness
     private string lastSyncedState = string.Empty;
     private float statusUpdateTimer = 0f;
     
@@ -72,6 +74,9 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     // Reference to player connection manager
     private PlayerConnectionManager playerConnectionManager;
     private PlayerConnectionManager playerConnectionManagerRef;
+
+    // For tracking move synchronization
+    private int lastSyncedMoveCount = -1;
 
     public static event Action<string> ConnectionStatusChangedEvent;
 
@@ -132,6 +137,46 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null) {
             NetworkErrorHandler.OnNetworkError += OnNetworkError;
         }
+        
+        // Create the turn manager if it doesn't exist
+        turnManager = GetComponent<NetworkTurnManager>();
+        if (turnManager == null) {
+            turnManager = gameObject.AddComponent<NetworkTurnManager>();
+        }
+    }
+    
+    public void HandleSuccessfulMove() {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
+
+        if (verbose) Debug.Log("HandleSuccessfulMove called - locking movement and broadcasting state");
+
+        try {
+            // Lock movement immediately after a move
+            if (turnManager != null) {
+                turnManager.LockMovement();
+            } else {
+                Debug.LogWarning("turnManager is null, cannot lock movement");
+            }
+        
+            // Broadcast the current game state
+            BroadcastCurrentGameState();
+        
+            // End the turn - use the safer method
+            if (turnManager != null) {
+                turnManager.EndTurn();
+            } else {
+                Debug.LogWarning("turnManager is null, cannot end turn");
+            }
+        } catch (System.Exception e) {
+            Debug.LogError($"Error in HandleSuccessfulMove: {e.Message}\n{e.StackTrace}");
+        
+            // Ensure the game state is still broadcast even if there's an error
+            try {
+                BroadcastCurrentGameState();
+            } catch (System.Exception e2) {
+                Debug.LogError($"Error in fallback BroadcastCurrentGameState: {e2.Message}");
+            }
+        }
     }
     
     private void OnDestroy() {
@@ -174,10 +219,12 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                 
                 // Get current game state
                 string currentState = GameManager.Instance.SerializeGame();
+                int currentMoveCount = GameManager.Instance.LatestHalfMoveIndex;
                 
-                // Only send if state has changed
-                if (currentState != lastSyncedState) {
+                // Only send if state has changed or move count has changed
+                if (currentState != lastSyncedState || currentMoveCount != lastSyncedMoveCount) {
                     lastSyncedState = currentState;
+                    lastSyncedMoveCount = currentMoveCount;
                     SyncGameStateClientRpc(currentState);
                     if (verbose) Debug.Log("[HOST] Game state synchronized to clients: " + currentState.Substring(0, Mathf.Min(30, currentState.Length)) + "...");
                 }
@@ -418,6 +465,12 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Validates a join code before attempting to connect
     /// </summary>
     private bool ValidateJoinCode(string joinCode) {
+        // Special case for "chessgame"
+        if (joinCode.ToLower() == "chessgame") {
+            Debug.Log("Special code 'chessgame' validated internally");
+            return true;
+        }
+        
         // Use NetworkErrorHandler if available
         if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null) {
             return NetworkErrorHandler.Instance.ValidateJoinCode(joinCode);
@@ -588,6 +641,12 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Starts a network session as the host.
     /// </summary>
     public void StartHost() {
+        if (playerNameInputField == null)
+        {
+            Debug.LogWarning("playerNameInputField is null, using default name");
+            // Continue with a default value
+        }
+        
         try {
             // Reset intentional disconnect flag
             intentionalDisconnect = false;
@@ -643,6 +702,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                 
                 // Initial sync
                 lastSyncedState = GameManager.Instance.SerializeGame();
+                lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex;
                 
                 // Make sure only White pieces are enabled for the host
                 RefreshAllPiecesInteractivity();
@@ -664,6 +724,11 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         try {
             // Reset intentional disconnect flag
             intentionalDisconnect = false;
+            
+            // Special handling for "chessgame" code
+            if (joinCode.ToLower() == "chessgame") {
+                joinCode = "127.0.0.1:7777";
+            }
             
             // Use NetworkErrorHandler to validate join code
             if (!ValidateJoinCode(joinCode)) {
@@ -746,17 +811,66 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             return false;
         }
     }
+    
+    public void UpdateBoardVisuals(string serializedGameState) {
+        // Load the game state
+        GameManager.Instance.LoadGame(serializedGameState);
+    
+        // Update piece interactivity based on the new game state
+        RefreshAllPiecesInteractivity();
+    
+        // Update the board visuals
+        foreach ((Square square, Piece piece) in GameManager.Instance.CurrentPieces) {
+            // Get the GameObject at this position
+            GameObject pieceGO = BoardManager.Instance.GetPieceGOAtPosition(square);
+        
+            // If there's no piece there but should be, create it
+            if (pieceGO == null) {
+                BoardManager.Instance.CreateAndPlacePieceGO(piece, square);
+            }
+            // If there's a piece there that doesn't match the current state, update it
+            else {
+                VisualPiece visualPiece = pieceGO.GetComponent<VisualPiece>();
+                if (visualPiece != null && visualPiece.PieceColor != piece.Owner) {
+                    // Remove incorrect piece and create correct one
+                    BoardManager.Instance.TryDestroyVisualPiece(square);
+                    BoardManager.Instance.CreateAndPlacePieceGO(piece, square);
+                }
+            }
+        }
+    
+        // Remove any pieces that are no longer in the game state
+        VisualPiece[] allPieces = FindObjectsOfType<VisualPiece>();
+        foreach (VisualPiece piece in allPieces) {
+            Square position = piece.CurrentSquare;
+            Piece boardPiece = GameManager.Instance.CurrentBoard[position];
+        
+            // If this visual piece has no corresponding piece in the game state, remove it
+            if (boardPiece == null) {
+                BoardManager.Instance.TryDestroyVisualPiece(position);
+            }
+        }
+    
+        // Update the UI
+        if (UIManager.Instance != null) {
+            // Trigger UI update (this would normally happen with GameResetToHalfMoveEvent)
+            UIManager.Instance.SendMessage("OnGameResetToHalfMove", SendMessageOptions.DontRequireReceiver);
+        }
+    }
 
     /// <summary>
     /// Joins an existing network session as a client.
     /// </summary>
-    public void StartClient() {
-        try {
+    public void StartClient()
+    {
+        try
+        {
             // Reset intentional disconnect flag
             intentionalDisconnect = false;
             
             // Cancel any ongoing connection attempts
-            if (connectionTimeoutCoroutine != null) {
+            if (connectionTimeoutCoroutine != null)
+            {
                 StopCoroutine(connectionTimeoutCoroutine);
                 connectionTimeoutCoroutine = null;
             }
@@ -764,28 +878,44 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             HideConnectionError();
             
             string joinCode = joinCodeInputField != null ? joinCodeInputField.text : "";
+            Debug.Log($"Join code entered: '{joinCode}'");
+            
+            // Special handling for "chessgame" code
+            if (joinCode.ToLower() == "chessgame")
+            {
+                Debug.Log("Special code 'chessgame' detected, setting to localhost:7777");
+                joinCode = "127.0.0.1:7777";
+            }
             
             // Validate the join code
-            if (!ValidateJoinCode(joinCode)) {
+            if (!ValidateJoinCode(joinCode))
+            {
+                Debug.LogError("Join code validation failed");
                 return; // Validation failed
             }
             
             // Setup transport with the join code
             string[] parts = joinCode.Split(':');
-            if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port)) {
+            if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port))
+            {
                 var transport = NetworkManager.Singleton.GetComponent<Unity.Netcode.Transports.UTP.UnityTransport>();
-                if (transport != null) {
+                if (transport != null)
+                {
                     transport.ConnectionData.Address = parts[0];
                     transport.ConnectionData.Port = port;
                     lastKnownConnectionData = joinCode;
                     
                     // Store connection data in player connection manager
                     playerConnectionManager.StoreConnectionData(0, joinCode); // Client ID will be assigned later
-                } else {
+                }
+                else
+                {
                     ShowConnectionError("Transport component not found");
                     return;
                 }
-            } else {
+            }
+            else
+            {
                 ShowConnectionError("Invalid join code format");
                 return;
             }
@@ -793,11 +923,13 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             DisableAllNetworkObjectsInScene();
             
             // Save the player name
-            if (playerNameInputField != null && !string.IsNullOrEmpty(playerNameInputField.text)) {
+            if (playerNameInputField != null && !string.IsNullOrEmpty(playerNameInputField.text))
+            {
                 playerConnectionManager.SetPlayerName(playerNameInputField.text);
             }
             
-            if (NetworkManager.Singleton.StartClient()) {
+            if (NetworkManager.Singleton.StartClient())
+            {
                 localPlayerSide = Side.Black;
                 wasConnected = true;
                 
@@ -934,6 +1066,9 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                 
                 // Send initial game state to the newly connected client
                 SyncGameStateClientRpc(GameManager.Instance.SerializeGame());
+            } else {
+                // If we're the client, request the current game state from the host
+                RequestSyncGameStateServerRpc();
             }
             
             // If using NetworkReconnectionManager, notify of successful reconnection
@@ -1095,10 +1230,10 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         // If we're the client, apply the state from the host
         if (!NetworkManager.Singleton.IsHost) {
             if (verbose) Debug.Log("[CLIENT] Received game state from host: " + serializedGameState.Substring(0, Mathf.Min(30, serializedGameState.Length)) + "...");
-            
+       
             // Load the serialized game state from the host
             GameManager.Instance.LoadGame(serializedGameState);
-            
+       
             // Update piece interactivity
             RefreshAllPiecesInteractivity();
         }
@@ -1113,12 +1248,15 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             return true;
         }
 
-        // In network mode, only allow moving pieces of your designated side
+        // In network mode:
+        // 1. Check if it's the player's piece
         bool isPlayersPiece = pieceSide == localPlayerSide;
         
-        // Also check if it's the player's turn
-        bool isPlayersTurn = GameManager.Instance.SideToMove == localPlayerSide;
-        
+        // 2. Check if it's their turn via TurnManager
+        bool isPlayersTurn = turnManager.CanPlayerMove(localPlayerSide);
+
+        if (verbose) Debug.Log($"Can move check: Player's piece: {isPlayersPiece}, Player's turn: {isPlayersTurn}, Local side: {localPlayerSide}, Piece side: {pieceSide}");
+       
         return isPlayersPiece && isPlayersTurn;
     }
 
@@ -1130,7 +1268,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     public void NotifyMoveServerRpc(string serializedMove) {
         if (NetworkManager.Singleton.IsHost) {
             if (verbose) Debug.Log("[HOST] Received move notification from client");
-            
+           
             // In our simplified approach, just sync the game state back to clients
             SyncGameStateClientRpc(GameManager.Instance.SerializeGame());
         }
@@ -1142,10 +1280,11 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// </summary>
     public void BroadcastCurrentGameState() {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
-        
+       
         if (NetworkManager.Singleton.IsHost) {
             string serializedGame = GameManager.Instance.SerializeGame();
             lastSyncedState = serializedGame; // Update last synced state
+            lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex; // Update last synced move count
             SyncGameStateClientRpc(serializedGame);
             if (verbose) Debug.Log("[HOST] Broadcasting game state after move: " + serializedGame.Substring(0, Mathf.Min(30, serializedGame.Length)) + "...");
         } else {
@@ -1155,7 +1294,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             if (verbose) Debug.Log("[CLIENT] Notifying host of move: " + serializedGame.Substring(0, Mathf.Min(30, serializedGame.Length)) + "...");
         }
     }
-    
+   
     /// <summary>
     /// Updates a client about another player's connection status
     /// </summary>
@@ -1163,14 +1302,13 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     public void UpdatePlayerConnectionStatusClientRpc(ulong clientId, bool isConnected, string playerName, int playerSide) {
         if (!NetworkManager.Singleton.IsHost) {
             if (verbose) Debug.Log($"Player {playerName} is now {(isConnected ? "connected" : "disconnected")}");
-            
+           
             // Update UI or game state based on the other player's connection status
             Side side = playerSide == 0 ? Side.White : Side.Black;
-            
+           
             // If playing against a disconnected player, we may want to pause the game or show a waiting message
             if (!isConnected) {
                 // Example: Show a message that opponent disconnected
-                // UIManager.Instance.ShowMessage($"{playerName} disconnected. Waiting for reconnection...");
                 UpdateConnectionStatus($"Opponent {playerName} disconnected. Waiting for reconnection...");
             } else if (isConnected) {
                 // Hide the disconnection message
@@ -1178,7 +1316,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             }
         }
     }
-    
+   
     /// <summary>
     /// Backwards compatibility method for old code that used BroadcastMoveClientRpc
     /// </summary>
@@ -1190,7 +1328,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             RefreshAllPiecesInteractivity();
         }
     }
-    
+   
     /// <summary>
     /// Requests the host to send the current game state (for reconnection)
     /// </summary>
@@ -1198,13 +1336,13 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     public void RequestSyncGameStateServerRpc() {
         if (NetworkManager.Singleton.IsHost) {
             if (verbose) Debug.Log("[HOST] Client requested game state sync");
-            
+           
             // Send the current game state to all clients
             string serializedGame = GameManager.Instance.SerializeGame();
             SyncGameStateClientRpc(serializedGame);
         }
     }
-    
+   
     /// <summary>
     /// Sets the player name for the session
     /// </summary>
@@ -1213,23 +1351,23 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             playerConnectionManager.SetPlayerName(name);
         }
     }
-    
+   
     /// <summary>
     /// Gets a reference to the PlayerConnectionManager
     /// </summary>
     public PlayerConnectionManager GetPlayerConnectionManager() {
         if (playerConnectionManagerRef == null) {
             playerConnectionManagerRef = GetComponent<PlayerConnectionManager>();
-            
+           
             // Auto-add if missing
             if (playerConnectionManagerRef == null) {
                 playerConnectionManagerRef = gameObject.AddComponent<PlayerConnectionManager>();
             }
         }
-        
+       
         return playerConnectionManagerRef;
     }
-    
+   
     /// <summary>
     /// Checks if the current disconnect was intentional
     /// </summary>

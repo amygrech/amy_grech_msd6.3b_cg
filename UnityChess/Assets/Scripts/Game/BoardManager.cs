@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityChess;
 using UnityEngine;
 using static UnityChess.SquareUtil;
@@ -130,6 +131,13 @@ public class BoardManager : MonoBehaviourSingleton<BoardManager> {
 			Resources.Load("PieceSets/Marble/" + modelName) as GameObject,
 			positionMap[position].transform
 		);
+    
+		// Ensure the piece has a ChessNetworkPieceController for network synchronization
+		if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
+			if (pieceGO.GetComponent<ChessNetworkPieceController>() == null) {
+				pieceGO.AddComponent<ChessNetworkPieceController>();
+			}
+		}
 	}
 
 	/// <summary>
