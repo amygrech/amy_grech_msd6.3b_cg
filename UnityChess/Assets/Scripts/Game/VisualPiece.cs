@@ -17,6 +17,9 @@ public class VisualPiece : MonoBehaviour {
 	
 	// Static event raised when a visual piece is moved.
 	public static event VisualPieceMovedAction VisualPieceMoved;
+
+    // Flag to indicate if we should cancel default move processing (for network games)
+    public static bool CancelMoveProcessing = false;
 	
 	// The colour (side) of the piece (White or Black).
 	public Side PieceColor;
@@ -31,12 +34,22 @@ public class VisualPiece : MonoBehaviour {
 	private Camera boardCamera;
 	// The screen-space position of the piece when it is first picked up.
 	private Vector3 piecePositionSS;
-	// A reference to the piece's SphereCollider (if required for collision handling).
-	private SphereCollider pieceBoundingSphere;
 	// A list to hold potential board square GameObjects that the piece might land on.
 	private List<GameObject> potentialLandingSquares;
 	// A cached reference to the transform of this piece.
 	private Transform thisTransform;
+    // Track whether the piece is being dragged
+    private bool isDragging = false;
+    // Original parent of the piece
+    private Transform originalParent;
+    
+    // Debug flag
+    [SerializeField] private bool debugMode = true;
+    
+    // Reference to the BoardSynchronizer
+    private BoardSynchronizer boardSynchronizer;
+    // Reference to the NetworkTurnManager
+    private NetworkTurnManager turnManager;
 
 	/// <summary>
 	/// Initialises the visual piece. Sets up necessary variables and obtains a reference to the main camera.
@@ -48,6 +61,18 @@ public class VisualPiece : MonoBehaviour {
 		thisTransform = transform;
 		// Obtain the main camera from the scene.
 		boardCamera = Camera.main;
+		
+		// Find the BoardSynchronizer
+        boardSynchronizer = FindObjectOfType<BoardSynchronizer>();
+        if (boardSynchronizer == null && debugMode) {
+            Debug.LogWarning("BoardSynchronizer not found in scene. Network synchronization might not work properly.");
+        }
+        
+        // Find the NetworkTurnManager
+        turnManager = FindObjectOfType<NetworkTurnManager>();
+        if (turnManager == null && debugMode) {
+            Debug.LogWarning("NetworkTurnManager not found in scene. Turn management might not work properly.");
+        }
 	}
 
 	/// <summary>
@@ -60,12 +85,17 @@ public class VisualPiece : MonoBehaviour {
 			if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
 				// Only allow dragging if it's this player's turn and piece
 				if (!ChessNetworkManager.Instance.CanMoveCurrentPiece(PieceColor)) {
+					if (debugMode) Debug.Log($"Cannot move piece: {PieceColor} - not your turn or piece");
 					return;
 				}
 			}
         
 			// Convert the world position of the piece to screen-space and store it.
 			piecePositionSS = boardCamera.WorldToScreenPoint(transform.position);
+            isDragging = true;
+            originalParent = transform.parent;
+            
+            if (debugMode) Debug.Log($"Starting to drag {PieceColor} piece from {CurrentSquare}");
 		}
 	}
 
@@ -74,15 +104,7 @@ public class VisualPiece : MonoBehaviour {
 	/// Updates the piece's world position to follow the mouse cursor.
 	/// </summary>
 	private void OnMouseDrag() {
-		if (enabled) {
-			// Check if we're in a networked game
-			if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
-				// Only allow dragging if it's this player's turn and piece
-				if (!ChessNetworkManager.Instance.CanMoveCurrentPiece(PieceColor)) {
-					return;
-				}
-			}
-        
+		if (enabled && isDragging) {
 			// Create a new screen-space position based on the current mouse position,
 			// preserving the original depth (z-coordinate).
 			Vector3 nextPiecePositionSS = new Vector3(Input.mousePosition.x, Input.mousePosition.y, piecePositionSS.z);
@@ -96,7 +118,11 @@ public class VisualPiece : MonoBehaviour {
 	/// Determines the closest board square to the piece and raises an event with the move.
 	/// </summary>
 	public void OnMouseUp() {
-		if (enabled) {
+		if (enabled && isDragging) {
+            // Reset dragging state
+            isDragging = false;
+            CancelMoveProcessing = false;
+        
 			// Clear any previous potential landing square candidates.
 			potentialLandingSquares.Clear();
 			// Obtain all square GameObjects within the collision radius of the piece's current position.
@@ -126,8 +152,79 @@ public class VisualPiece : MonoBehaviour {
 				}
 			}
 
+            Square startSquare = CurrentSquare;
+            Square endSquare = new Square(closestSquareTransform.name);
+            
+            if (debugMode) Debug.Log($"Attempting to move {PieceColor} piece from {startSquare} to {endSquare}");
+            
+            // Check if the move is legal using GameManager
+            bool isLegalMove = GameManager.Instance.TryGetLegalMove(startSquare, endSquare, out Movement move);
+            
+            if (!isLegalMove) {
+                // Reset piece position if move is not legal
+                thisTransform.position = originalParent.position;
+                return;
+            }
+            
+            // CRITICAL FIX: If we're in a networked game, directly notify about the move
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient && boardSynchronizer != null) {
+                if (NetworkManager.Singleton.IsHost) {
+                    // If we're the host (White), notify clients directly about our move
+                    if (debugMode) Debug.Log($"[HOST] Directly notifying clients about move from {startSquare} to {endSquare}");
+                    boardSynchronizer.NotifyClientOfMoveClientRpc(startSquare.ToString(), endSquare.ToString());
+                    
+                    // Explicitly change turn to Black after White's move
+                    if (turnManager != null && PieceColor == Side.White) {
+                        StartCoroutine(DelayedTurnChange(0.5f, 1)); // Change to Black (1) after delay
+                    }
+                } else {
+                    // If we're a client (Black), notify the host directly about our move
+                    if (debugMode) Debug.Log($"[CLIENT] Directly notifying host about move from {startSquare} to {endSquare}");
+                    boardSynchronizer.NotifyHostOfMoveServerRpc(startSquare.ToString(), endSquare.ToString());
+                    
+                    // CRITICAL FIX: Explicitly request turn change to White after Black's move
+                    if (turnManager != null && PieceColor == Side.Black) {
+                        StartCoroutine(DelayedTurnChange(0.5f, 0)); // Request change to White (0) after delay
+                    }
+                }
+                
+                // CRITICAL FIX: Execute the move in the GameManager to update game state
+                GameManager.Instance.ExecuteMove(move);
+            }
+
 			// Raise the VisualPieceMoved event with the initial square, the piece's transform, and the closest square transform.
-			VisualPieceMoved?.Invoke(CurrentSquare, thisTransform, closestSquareTransform);
+			VisualPieceMoved?.Invoke(startSquare, thisTransform, closestSquareTransform);
+            
+            // Move the piece directly to ensure it's visible on both sides
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
+                // Directly update our own visual position to avoid any sync issues
+                Transform targetSquareTransform = BoardManager.Instance.GetSquareGOByPosition(endSquare).transform;
+                thisTransform.SetParent(targetSquareTransform);
+                thisTransform.localPosition = Vector3.zero;
+            }
 		}
 	}
+    
+    /// <summary>
+    /// Helper coroutine to change turn after a delay
+    /// </summary>
+    private System.Collections.IEnumerator DelayedTurnChange(float delay, int newTurn) {
+        yield return new WaitForSeconds(delay);
+        
+        if (turnManager != null) {
+            if (NetworkManager.Singleton.IsHost) {
+                // If we're the host, change turn directly
+                turnManager.ChangeCurrentTurn(newTurn);
+                Debug.Log($"[HOST] Changed turn to {(newTurn == 0 ? "White" : "Black")} after delay");
+            } else {
+                // If we're the client, request turn change from server
+                int currentTurn = turnManager.currentTurn.Value;
+                turnManager.RequestTurnChangeServerRpc(currentTurn, newTurn);
+                Debug.Log($"[CLIENT] Requested turn change to {(newTurn == 0 ? "White" : "Black")} after delay");
+            }
+            
+            // Force refresh piece interactivity
+            ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();
+        }
+    }
 }
