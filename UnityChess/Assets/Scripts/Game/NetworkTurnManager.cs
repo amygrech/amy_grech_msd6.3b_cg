@@ -59,8 +59,8 @@ public class NetworkTurnManager : NetworkBehaviour {
     
     private void OnTurnChanged(int previousValue, int newValue) {
         Debug.Log($"[NetworkTurnManager] Turn changed from {(previousValue == 0 ? "White" : "Black")} to {(newValue == 0 ? "White" : "Black")}");
-        
-        // Update piece interactivity whenever turn changes
+    
+        // Force immediate refresh of all pieces to ensure correct interactivity
         if (networkManager != null) {
             networkManager.RefreshAllPiecesInteractivity();
         }
@@ -153,23 +153,16 @@ public class NetworkTurnManager : NetworkBehaviour {
         
         ChangeCurrentTurn();
     }
-
+    
     [ClientRpc]
     private void UpdateTurnStateClientRpc(int newTurn) {
         // Update UI or game state based on new turn
         string currentPlayer = newTurn == 0 ? "White" : "Black";
         Debug.Log($"[NetworkTurnManager] Turn changed to: {currentPlayer}");
-        
-        // Always force refresh piece interactivity 
-        if (networkManager != null) {
-            networkManager.RefreshAllPiecesInteractivity();
-        } else {
-            Debug.LogError("[NetworkTurnManager] ChessNetworkManager reference is null!");
-            // Try finding it again if reference was lost
-            networkManager = FindObjectOfType<ChessNetworkManager>();
-            if (networkManager != null) {
-                networkManager.RefreshAllPiecesInteractivity();
-            }
+    
+        // Perform an immediate refresh of piece interactivity
+        if (ChessNetworkManager.Instance != null) {
+            ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();
         }
     }
     

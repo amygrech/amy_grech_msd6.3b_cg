@@ -14,7 +14,7 @@ public class ChessNetworkPieceController : MonoBehaviour
     private float checkInterval = 0.2f; // How often to check turn state (seconds)
     private float checkTimer = 0f;
     
-    [SerializeField] private bool debugMode = true;
+    [SerializeField] private bool debugMode = false;
     
     void Awake() 
     {
@@ -76,39 +76,39 @@ public class ChessNetworkPieceController : MonoBehaviour
     /// Updates whether this piece should be interactive based on whose turn it is
     /// and which player we are in the network game
     /// </summary>
-    private void UpdatePieceInteractivity()
-    {
+    private void UpdatePieceInteractivity() {
         // In single player, all pieces should be enabled by normal game rules
-        if (!isNetworked)
-        {
+        if (!isNetworked) {
             return; // Let the game handle this normally
         }
-        
-        // In network mode, check with ChessNetworkManager if we can move this piece
-        if (ChessNetworkManager.Instance != null && visualPiece != null)
-        {
-            bool canMove = ChessNetworkManager.Instance.CanMoveCurrentPiece(visualPiece.PieceColor);
-            
-            // Only update if needed to avoid constant enable/disable
-            if (visualPiece.enabled != canMove)
-            {
-                visualPiece.enabled = canMove;
-                
-                if (debugMode) Debug.Log($"[ChessNetworkPieceController] Setting piece interactivity: {visualPiece.PieceColor} {gameObject.name} enabled={canMove}, Side={ChessNetworkManager.Instance.GetLocalPlayerSide()}, Current Turn={GameManager.Instance.SideToMove}");
-            }
+    
+        if (ChessNetworkManager.Instance == null) {
+            Debug.LogError("[ChessNetworkPieceController] ChessNetworkManager.Instance is null!");
+            return;
         }
-        else 
-        {
-            if (ChessNetworkManager.Instance == null)
-            {
-                Debug.LogError("[ChessNetworkPieceController] ChessNetworkManager.Instance is null!");
-            }
-            if (visualPiece == null)
-            {
-                Debug.LogError("[ChessNetworkPieceController] visualPiece is null!");
-            }
+    
+        // Get local player's side
+        Side localPlayerSide = ChessNetworkManager.Instance.GetLocalPlayerSide();
+    
+        // Get current turn from GameManager
+        Side currentTurnSide = GameManager.Instance.SideToMove;
+    
+        // Debug output
+        if (debugMode) Debug.Log($"[ChessNetworkPieceController] Checking piece {gameObject.name} - PieceColor: {visualPiece.PieceColor}, LocalSide: {localPlayerSide}, CurrentTurn: {currentTurnSide}");
+    
+        // Simple rule: Enable piece if it belongs to local player AND it's their turn
+        bool canMove = (visualPiece.PieceColor == localPlayerSide) && (currentTurnSide == localPlayerSide);
+    
+        if (debugMode || visualPiece.enabled != canMove) {
+            Debug.Log($"[ChessNetworkPieceController] {gameObject.name} ({visualPiece.PieceColor}) interactivity set to {canMove}. LocalSide={localPlayerSide}, CurrentTurn={currentTurnSide}");
+        }
+    
+        // Only update if needed to avoid constant enable/disable
+        if (visualPiece.enabled != canMove) {
+            visualPiece.enabled = canMove;
         }
     }
+    
     
     /// <summary>
     /// Manually trigger a check for piece interactivity

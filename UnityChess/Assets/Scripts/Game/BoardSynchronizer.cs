@@ -32,10 +32,21 @@ public class BoardSynchronizer : NetworkBehaviour
         gameManager = GameManager.Instance;
         boardManager = BoardManager.Instance;
         networkManager = ChessNetworkManager.Instance;
-        
+    
+        if (gameManager == null || boardManager == null || networkManager == null) {
+            Debug.LogError("[BoardSynchronizer] Missing required component references!");
+            enabled = false;
+            return;
+        }
+    
         // Get the OnPieceMoved method via reflection since it's private
         onPieceMovedMethod = typeof(GameManager).GetMethod("OnPieceMoved", 
             BindingFlags.NonPublic | BindingFlags.Instance);
+    
+        if (onPieceMovedMethod == null) {
+            Debug.LogError("[BoardSynchronizer] Could not find OnPieceMoved method via reflection!");
+            enabled = false;
+        }
     }
 
     public override void OnNetworkSpawn()
@@ -102,109 +113,127 @@ public class BoardSynchronizer : NetworkBehaviour
     /// Synchronizes the board state from server to clients
     /// </summary>
     [ClientRpc]
-    public void SyncBoardStateClientRpc(string serializedGameState)
-    {
-        if (!IsServer && !IsHost)
-        {
+    public void SyncBoardStateClientRpc(string serializedGameState) {
+        if (!IsServer && !IsHost) {
             if (verbose) Debug.Log("[CLIENT] Received board state from server");
-            
+        
             // Apply the serialized state to update the client's game
             gameManager.LoadGame(serializedGameState);
-            
-            // Refresh piece interactivity
-            networkManager.RefreshAllPiecesInteractivity();
+        
+            // IMPORTANT: Force refresh piece interactivity
+            if (ChessNetworkManager.Instance != null) {
+                // Use a short delay to ensure the game state is fully updated
+                StartCoroutine(DelayedRefresh());
+            }
         }
+    }
+
+    private System.Collections.IEnumerator DelayedRefresh() {
+        // Small delay to ensure game state is fully updated
+        yield return new WaitForSeconds(0.1f);
+        ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();
     }
 
     /// <summary>
     /// Called by clients to request a move validation from the server
     /// </summary>
-    [ServerRpc(RequireOwnership = false)]
-    public void ValidateMoveServerRpc(ulong clientId, string startSquare, string endSquare, string pieceType)
+    /// <summary>
+/// Called by clients to request a move validation from the server
+/// </summary>
+[ServerRpc(RequireOwnership = false)]
+public void ValidateMoveServerRpc(ulong clientId, string startSquare, string endSquare, string pieceType)
+{
+    if (!IsServer && !IsHost) return;
+    
+    Debug.Log($"[SERVER] Validating move from {startSquare} to {endSquare} for client {clientId}");
+    
+    // Convert string coordinates to Square objects
+    Square start = SquareUtil.StringToSquare(startSquare);
+    Square end = SquareUtil.StringToSquare(endSquare);
+    
+    // Get the current side to move
+    Side currentSide = gameManager.SideToMove;
+    
+    // Get player info
+    PlayerConnectionManager.PlayerInfo playerInfo = networkManager.GetPlayerConnectionManager().GetPlayerInfo(clientId);
+    if (playerInfo == null)
     {
-        if (!IsServer && !IsHost) return;
+        Debug.LogError($"[SERVER] Player info not found for client {clientId}");
+        RejectMoveClientRpc(clientId, startSquare, endSquare);
+        return;
+    }
+    
+    Debug.Log($"[SERVER] Move from client {clientId}, assigned side: {playerInfo.AssignedSide}, current turn: {currentSide}");
+    
+    // Check if this client is allowed to move
+    if (playerInfo.AssignedSide != currentSide)
+    {
+        Debug.Log($"[SERVER] Move rejected - wrong player's turn. Current side: {currentSide}, Player side: {playerInfo.AssignedSide}");
+        RejectMoveClientRpc(clientId, startSquare, endSquare);
+        return;
+    }
+    
+    // Validate the move is for the correct player's piece
+    Piece movingPiece = gameManager.CurrentBoard[start];
+    if (movingPiece == null || movingPiece.Owner != currentSide)
+    {
+        if (verbose) Debug.Log($"[SERVER] Move rejected - wrong player's piece. Piece owner: {(movingPiece != null ? movingPiece.Owner.ToString() : "null")}, Current side: {currentSide}");
         
-        if (verbose) Debug.Log($"[SERVER] Validating move from {startSquare} to {endSquare} for client {clientId}");
-        
-        // Convert string coordinates to Square objects
-        Square start = SquareUtil.StringToSquare(startSquare);
-        Square end = SquareUtil.StringToSquare(endSquare);
-        
-        // Get the current side to move
-        Side currentSide = gameManager.SideToMove;
-        
-        // Check if this client is allowed to move
-        PlayerConnectionManager.PlayerInfo playerInfo = networkManager.GetPlayerConnectionManager().GetPlayerInfo(clientId);
-        if (playerInfo == null || playerInfo.AssignedSide != currentSide)
+        // Send rejection notification back to the client
+        RejectMoveClientRpc(clientId, startSquare, endSquare);
+        return;
+    }
+    
+    // Try to validate and execute the move
+    try {
+        if (onPieceMovedMethod != null)
         {
-            if (verbose) Debug.Log($"[SERVER] Move rejected - wrong player's turn");
-            
-            // Send rejection notification back to the client
-            RejectMoveClientRpc(clientId, startSquare, endSquare);
-            return;
-        }
-        
-        // Validate the move is for the correct player's piece
-        Piece movingPiece = gameManager.CurrentBoard[start];
-        if (movingPiece == null || movingPiece.Owner != currentSide)
-        {
-            if (verbose) Debug.Log($"[SERVER] Move rejected - wrong player's piece");
-            
-            // Send rejection notification back to the client
-            RejectMoveClientRpc(clientId, startSquare, endSquare);
-            return;
-        }
-        
-        // Try to validate and execute the move
-        try {
-            if (onPieceMovedMethod != null)
+            // Get the piece GameObject and end square transform
+            GameObject pieceGO = boardManager.GetPieceGOAtPosition(start);
+            if (pieceGO == null)
             {
-                // Get the piece GameObject and end square transform
-                GameObject pieceGO = boardManager.GetPieceGOAtPosition(start);
-                if (pieceGO == null)
-                {
-                    if (verbose) Debug.Log($"[SERVER] Move rejected - piece not found at {start}");
-                    RejectMoveClientRpc(clientId, startSquare, endSquare);
-                    return;
-                }
+                if (verbose) Debug.Log($"[SERVER] Move rejected - piece not found at {start}");
+                RejectMoveClientRpc(clientId, startSquare, endSquare);
+                return;
+            }
+            
+            Transform pieceTransform = pieceGO.transform;
+            Transform endSquareTransform = boardManager.GetSquareGOByPosition(end).transform;
+            
+            if (verbose) Debug.Log($"[SERVER] Invoking OnPieceMoved on GameManager");
+            
+            // Call the private OnPieceMoved method on GameManager via reflection
+            onPieceMovedMethod.Invoke(gameManager, new object[] { 
+                start, pieceTransform, endSquareTransform, null 
+            });
+            
+            // After invoking, check if the move was valid by looking at the current board state
+            // If the piece moved, it was valid
+            Piece pieceAtEndSquare = gameManager.CurrentBoard[end];
+            if (pieceAtEndSquare != null && pieceAtEndSquare.Owner == currentSide)
+            {
+                if (verbose) Debug.Log($"[SERVER] Move validated and executed");
                 
-                Transform pieceTransform = pieceGO.transform;
-                Transform endSquareTransform = boardManager.GetSquareGOByPosition(end).transform;
-                
-                if (verbose) Debug.Log($"[SERVER] Invoking OnPieceMoved on GameManager");
-                
-                // Call the private OnPieceMoved method on GameManager via reflection
-                onPieceMovedMethod.Invoke(gameManager, new object[] { 
-                    start, pieceTransform, endSquareTransform, null 
-                });
-                
-                // After invoking, check if the move was valid by looking at the current board state
-                // If the piece moved, it was valid
-                Piece pieceAtEndSquare = gameManager.CurrentBoard[end];
-                if (pieceAtEndSquare != null && pieceAtEndSquare.Owner == currentSide)
-                {
-                    if (verbose) Debug.Log($"[SERVER] Move validated and executed");
-                    
-                    // The move execution will trigger OnMoveExecuted which will sync the state
-                    // No need to do anything else here
-                }
-                else
-                {
-                    if (verbose) Debug.Log($"[SERVER] Move was invalid or rejected by game rules");
-                    RejectMoveClientRpc(clientId, startSquare, endSquare);
-                }
+                // The move execution will trigger OnMoveExecuted which will sync the state
+                // No need to do anything else here
             }
             else
             {
-                Debug.LogError("[SERVER] Could not find OnPieceMoved method via reflection");
+                if (verbose) Debug.Log($"[SERVER] Move was invalid or rejected by game rules");
                 RejectMoveClientRpc(clientId, startSquare, endSquare);
             }
         }
-        catch (System.Exception ex) {
-            Debug.LogError($"[SERVER] Error validating move: {ex.Message}");
+        else
+        {
+            Debug.LogError("[SERVER] Could not find OnPieceMoved method via reflection");
             RejectMoveClientRpc(clientId, startSquare, endSquare);
         }
     }
+    catch (System.Exception ex) {
+        Debug.LogError($"[SERVER] Error validating move: {ex.Message}");
+        RejectMoveClientRpc(clientId, startSquare, endSquare);
+    }
+}
     
     /// <summary>
     /// Notifies a client that their move was rejected

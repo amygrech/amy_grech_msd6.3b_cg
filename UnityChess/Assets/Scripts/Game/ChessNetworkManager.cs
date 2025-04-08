@@ -148,41 +148,24 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     public void HandleSuccessfulMove() {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
 
-        Debug.Log("[ChessNetworkManager] HandleSuccessfulMove called - locking movement and broadcasting state");
+        Debug.Log("[ChessNetworkManager] HandleSuccessfulMove called");
 
         try {
             // Lock movement immediately after a move
             if (turnManager != null) {
                 turnManager.LockMovement();
-            } else {
-                Debug.LogError("[ChessNetworkManager] turnManager is null in HandleSuccessfulMove!");
-                // Try to find it if it's not assigned
-                turnManager = GetComponentInChildren<NetworkTurnManager>();
-                if (turnManager == null) {
-                    turnManager = FindObjectOfType<NetworkTurnManager>();
-                }
-            
-                if (turnManager != null) {
-                    turnManager.LockMovement();
-                } else {
-                    Debug.LogError("[ChessNetworkManager] Could not find NetworkTurnManager in the scene!");
-                }
             }
-    
+        
             // Broadcast the current game state
             BroadcastCurrentGameState();
-    
+        
+            // Force update piece interactivity right away
+            RefreshAllPiecesInteractivity();
+        
             // End the turn with delay to ensure state synchronization
-            StartCoroutine(EndTurnAfterDelay(0.3f));
+            StartCoroutine(EndTurnAfterDelay(0.5f));
         } catch (System.Exception e) {
             Debug.LogError($"[ChessNetworkManager] Error in HandleSuccessfulMove: {e.Message}\n{e.StackTrace}");
-    
-            // Ensure the game state is still broadcast even if there's an error
-            try {
-                BroadcastCurrentGameState();
-            } catch (System.Exception e2) {
-                Debug.LogError($"[ChessNetworkManager] Error in fallback BroadcastCurrentGameState: {e2.Message}");
-            }
         }
     }
     
@@ -905,6 +888,10 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             
             if (NetworkManager.Singleton.StartClient())
             {
+                // Make sure this is set correctly for the client
+                localPlayerSide = Side.Black;
+                Debug.Log($"[CLIENT] Started client, assigned to {localPlayerSide} side");
+                
                 localPlayerSide = Side.Black;
                 wasConnected = true;
                 
@@ -1205,14 +1192,15 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// </summary>
     [ClientRpc]
     public void SyncGameStateClientRpc(string serializedGameState) {
-        // If we're the client, apply the state from the host
-        if (!NetworkManager.Singleton.IsHost) {
-            if (verbose) Debug.Log("[CLIENT] Received game state from host: " + serializedGameState.Substring(0, Mathf.Min(30, serializedGameState.Length)) + "...");
-       
-            // Load the serialized game state from the host
+        // Only process this on non-host clients
+        if (!NetworkManager.Singleton.IsHost && !NetworkManager.Singleton.IsServer) {
+            Debug.Log("[CLIENT] Received game state from server: " + 
+                      serializedGameState.Substring(0, Math.Min(30, serializedGameState.Length)) + "...");
+        
+            // Apply the serialized state to update the client's game
             GameManager.Instance.LoadGame(serializedGameState);
-       
-            // Update piece interactivity
+        
+            // Refresh piece interactivity
             RefreshAllPiecesInteractivity();
         }
     }
@@ -1221,37 +1209,24 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Checks if the current player can move the specified piece.
     /// </summary>
     public bool CanMoveCurrentPiece(Side pieceSide) {
-        // In single player mode, allow moving any piece
+        // First, ensure we're in a networked game
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) {
-            return true;
+            return true; // In single player, always allow moves
         }
 
-        // In network mode:
-        if (turnManager == null) {
-            Debug.LogError("[ChessNetworkManager] turnManager is null in CanMoveCurrentPiece!");
-            // Try to find it if it's not assigned
-            turnManager = GetComponentInChildren<NetworkTurnManager>();
-            if (turnManager == null) {
-                turnManager = FindObjectOfType<NetworkTurnManager>();
-            }
-        
-            if (turnManager == null) {
-                Debug.LogError("[ChessNetworkManager] Could not find NetworkTurnManager in the scene!");
-                return false;
-            }
-        }
+        // Debug output to see what's happening
+        Debug.Log($"CanMoveCurrentPiece check - Local player: {localPlayerSide}, Piece: {pieceSide}, Current turn: {GameManager.Instance.SideToMove}");
     
-        // 1. Check if it's the player's piece
+        // Check 1: Is it this player's piece?
         bool isPlayersPiece = pieceSide == localPlayerSide;
     
-        // 2. Check if it's their turn via TurnManager
-        bool isPlayersTurn = turnManager.CanPlayerMove(localPlayerSide);
+        // Check 2: Is it this player's turn?
+        bool isPlayersTurn = GameManager.Instance.SideToMove == localPlayerSide;
     
-        // Additional logging
-        Debug.Log($"[ChessNetworkManager] CanMoveCurrentPiece: Player's piece: {isPlayersPiece}, Player's turn: {isPlayersTurn}, " +
-                  $"Local side: {localPlayerSide}, Piece side: {pieceSide}, Current turn in GameManager: {GameManager.Instance.SideToMove}");
-       
-        // Make sure both conditions are met
+        // More verbose debugging
+        Debug.Log($"Move check details - Is player's piece: {isPlayersPiece}, Is player's turn: {isPlayersTurn}");
+    
+        // Both conditions must be true
         return isPlayersPiece && isPlayersTurn;
     }
 
@@ -1260,33 +1235,43 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Called by client when they make a move.
     /// </summary>
     [ServerRpc(RequireOwnership = false)]
-    public void NotifyMoveServerRpc(string serializedMove) {
-        if (NetworkManager.Singleton.IsHost) {
-            if (verbose) Debug.Log("[HOST] Received move notification from client");
-           
-            // In our simplified approach, just sync the game state back to clients
-            SyncGameStateClientRpc(GameManager.Instance.SerializeGame());
+    public void NotifyMoveServerRpc(string serializedGameState) {
+        if (NetworkManager.Singleton.IsServer || NetworkManager.Singleton.IsHost) {
+            Debug.Log("[SERVER] Received move from client");
+    
+            // Important: Apply the client's move to the server's game state
+            GameManager.Instance.LoadGame(serializedGameState);
+    
+            // Then broadcast the updated state to all clients (including the sender)
+            string updatedState = GameManager.Instance.SerializeGame();
+            SyncGameStateClientRpc(updatedState);
+    
+            // Update last synced state
+            lastSyncedState = updatedState;
+            lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex;
         }
     }
-
+    
     /// <summary>
     /// Directly broadcasts the current game state to all clients.
     /// Called after a player makes a move.
     /// </summary>
     public void BroadcastCurrentGameState() {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
-       
+    
+        // For both host and client
+        string serializedGame = GameManager.Instance.SerializeGame();
+    
         if (NetworkManager.Singleton.IsHost) {
-            string serializedGame = GameManager.Instance.SerializeGame();
-            lastSyncedState = serializedGame; // Update last synced state
-            lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex; // Update last synced move count
+            // Host broadcasts to all clients
+            lastSyncedState = serializedGame;
+            lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex;
             SyncGameStateClientRpc(serializedGame);
-            if (verbose) Debug.Log("[HOST] Broadcasting game state after move: " + serializedGame.Substring(0, Mathf.Min(30, serializedGame.Length)) + "...");
+            Debug.Log("[HOST] Broadcasting game state after move: " + serializedGame.Substring(0, Math.Min(30, serializedGame.Length)) + "...");
         } else {
-            // If we're a client, notify the host about our move
-            string serializedGame = GameManager.Instance.SerializeGame();
+            // Client sends to host through ServerRpc
             NotifyMoveServerRpc(serializedGame);
-            if (verbose) Debug.Log("[CLIENT] Notifying host of move: " + serializedGame.Substring(0, Mathf.Min(30, serializedGame.Length)) + "...");
+            Debug.Log("[CLIENT] Sending move to host: " + serializedGame.Substring(0, Math.Min(30, serializedGame.Length)) + "...");
         }
     }
    

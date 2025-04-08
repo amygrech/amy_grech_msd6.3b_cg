@@ -319,27 +319,26 @@ private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedP
     // Determine the destination square based on the name of the closest board square transform.
     Square endSquare = new Square(closestBoardSquareTransform.name);
 
+    // Get the piece being moved
+    Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
+    if (movedPiece == null) {
+	    // No piece found - reset position
+	    movedPieceTransform.position = movedPieceTransform.parent.position;
+	    Debug.LogWarning("No piece found at the initial square");
+	    return;
+    }
+    
     // In networked games, verify this is a valid move for the current player
-    if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient)
-    {
-        // Get the piece being moved
-        Piece movedPiece = CurrentBoard[movedPieceInitialSquare];
-        if (movedPiece == null)
-        {
-            // No piece found - reset position
-            movedPieceTransform.position = movedPieceTransform.parent.position;
-            Debug.LogWarning("No piece found at the initial square");
-            return;
-        }
+    if (UnityEngine.Object.FindObjectOfType<ChessNetworkManager>() != null) {
+	    // Check if this player is allowed to move this piece
+	    bool canMove = UnityEngine.Object.FindObjectOfType<ChessNetworkManager>().CanMoveCurrentPiece(movedPiece.Owner);
+	    Debug.Log($"Network move check - Player: {UnityEngine.Object.FindObjectOfType<ChessNetworkManager>().GetLocalPlayerSide()}, Piece: {movedPiece.Owner}, Turn: {SideToMove}, CanMove: {canMove}");
         
-        // Check if this player is allowed to move this piece
-        if (!ChessNetworkManager.Instance.CanMoveCurrentPiece(movedPiece.Owner))
-        {
-            // Not this player's turn or piece - reset position
-            movedPieceTransform.position = movedPieceTransform.parent.position;
-            Debug.Log($"Cannot move piece - Player: {ChessNetworkManager.Instance.GetLocalPlayerSide()}, Piece: {movedPiece.Owner}, Turn: {SideToMove}");
-            return;
-        }
+	    if (!canMove) {
+		    // Not this player's turn or piece - reset position
+		    movedPieceTransform.position = movedPieceTransform.parent.position;
+		    return;
+	    }
     }
 
     // Attempt to retrieve a legal move from the game logic.
@@ -380,7 +379,7 @@ private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedP
         // Broadcast the updated game state to all clients, if in a networked game
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
 	        ChessNetworkManager.Instance.BroadcastCurrentGameState();
-	        Debug.Log("Broadcasting move: " + move.ToString());
+	        Debug.Log($"Broadcasting move: {move} - Piece: {movedPiece.Owner}, From: {movedPieceInitialSquare}, To: {endSquare}");
     
 	        // After move, let the ChessNetworkManager handle updating piece interactivity
 	        ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();

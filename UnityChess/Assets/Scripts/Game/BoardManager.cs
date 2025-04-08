@@ -117,7 +117,7 @@ public class BoardManager : MonoBehaviourSingleton<BoardManager> {
 		// Reset the local position so that the rook is centred on the square.
 		rookGO.transform.localPosition = Vector3.zero;
 	}
-
+	
 	/// <summary>
 	/// Instantiates and places the visual representation of a piece on the board.
 	/// </summary>
@@ -134,8 +134,17 @@ public class BoardManager : MonoBehaviourSingleton<BoardManager> {
     
 		// Ensure the piece has a ChessNetworkPieceController for network synchronization
 		if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient) {
-			if (pieceGO.GetComponent<ChessNetworkPieceController>() == null) {
-				pieceGO.AddComponent<ChessNetworkPieceController>();
+			// Check if component already exists
+			ChessNetworkPieceController controller = pieceGO.GetComponent<ChessNetworkPieceController>();
+			if (controller == null) {
+				// Add the controller component if it doesn't exist
+				controller = pieceGO.AddComponent<ChessNetworkPieceController>();
+				Debug.Log($"Added ChessNetworkPieceController to {piece.Owner} {piece.GetType().Name} at {position}");
+			}
+    
+			// Force an immediate update of the piece's interactivity
+			if (controller != null) {
+				controller.ForceUpdateInteractivity();
 			}
 		}
 	}
