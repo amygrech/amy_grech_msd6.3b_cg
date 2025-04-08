@@ -14,17 +14,22 @@ public class ChessNetworkPieceController : MonoBehaviour
     private float checkInterval = 0.2f; // How often to check turn state (seconds)
     private float checkTimer = 0f;
     
-    void Start()
+    [SerializeField] private bool debugMode = true;
+    
+    void Awake() 
     {
         // Get the VisualPiece component
         visualPiece = GetComponent<VisualPiece>();
         if (visualPiece == null)
         {
-            Debug.LogError("ChessNetworkPieceController requires a VisualPiece component", this);
+            Debug.LogError("[ChessNetworkPieceController] Requires a VisualPiece component", this);
             enabled = false;
             return;
         }
-        
+    }
+    
+    void Start()
+    {
         // Check if we're in a networked game
         CheckNetworkState();
         
@@ -62,6 +67,7 @@ public class ChessNetworkPieceController : MonoBehaviour
         // If we just connected or disconnected, force an update
         if (wasNetworked != isNetworked)
         {
+            if (debugMode) Debug.Log($"[ChessNetworkPieceController] Network state changed to {(isNetworked ? "connected" : "disconnected")} for {gameObject.name}");
             UpdatePieceInteractivity();
         }
     }
@@ -88,7 +94,18 @@ public class ChessNetworkPieceController : MonoBehaviour
             {
                 visualPiece.enabled = canMove;
                 
-                Debug.Log($"Setting piece interactivity: {visualPiece.PieceColor} {gameObject.name} enabled={canMove}, Side={ChessNetworkManager.Instance.GetLocalPlayerSide()}");
+                if (debugMode) Debug.Log($"[ChessNetworkPieceController] Setting piece interactivity: {visualPiece.PieceColor} {gameObject.name} enabled={canMove}, Side={ChessNetworkManager.Instance.GetLocalPlayerSide()}, Current Turn={GameManager.Instance.SideToMove}");
+            }
+        }
+        else 
+        {
+            if (ChessNetworkManager.Instance == null)
+            {
+                Debug.LogError("[ChessNetworkPieceController] ChessNetworkManager.Instance is null!");
+            }
+            if (visualPiece == null)
+            {
+                Debug.LogError("[ChessNetworkPieceController] visualPiece is null!");
             }
         }
     }
@@ -98,6 +115,7 @@ public class ChessNetworkPieceController : MonoBehaviour
     /// </summary>
     public void ForceUpdateInteractivity()
     {
+        if (debugMode) Debug.Log($"[ChessNetworkPieceController] ForceUpdateInteractivity called for {gameObject.name}");
         UpdatePieceInteractivity();
     }
 }

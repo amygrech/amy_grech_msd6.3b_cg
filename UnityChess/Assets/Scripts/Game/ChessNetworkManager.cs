@@ -148,35 +148,62 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     public void HandleSuccessfulMove() {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
 
-        if (verbose) Debug.Log("HandleSuccessfulMove called - locking movement and broadcasting state");
+        Debug.Log("[ChessNetworkManager] HandleSuccessfulMove called - locking movement and broadcasting state");
 
         try {
             // Lock movement immediately after a move
             if (turnManager != null) {
                 turnManager.LockMovement();
             } else {
-                Debug.LogWarning("turnManager is null, cannot lock movement");
+                Debug.LogError("[ChessNetworkManager] turnManager is null in HandleSuccessfulMove!");
+                // Try to find it if it's not assigned
+                turnManager = GetComponentInChildren<NetworkTurnManager>();
+                if (turnManager == null) {
+                    turnManager = FindObjectOfType<NetworkTurnManager>();
+                }
+            
+                if (turnManager != null) {
+                    turnManager.LockMovement();
+                } else {
+                    Debug.LogError("[ChessNetworkManager] Could not find NetworkTurnManager in the scene!");
+                }
             }
-        
+    
             // Broadcast the current game state
             BroadcastCurrentGameState();
-        
-            // End the turn - use the safer method
-            if (turnManager != null) {
-                turnManager.EndTurn();
-            } else {
-                Debug.LogWarning("turnManager is null, cannot end turn");
-            }
+    
+            // End the turn with delay to ensure state synchronization
+            StartCoroutine(EndTurnAfterDelay(0.3f));
         } catch (System.Exception e) {
-            Debug.LogError($"Error in HandleSuccessfulMove: {e.Message}\n{e.StackTrace}");
-        
+            Debug.LogError($"[ChessNetworkManager] Error in HandleSuccessfulMove: {e.Message}\n{e.StackTrace}");
+    
             // Ensure the game state is still broadcast even if there's an error
             try {
                 BroadcastCurrentGameState();
             } catch (System.Exception e2) {
-                Debug.LogError($"Error in fallback BroadcastCurrentGameState: {e2.Message}");
+                Debug.LogError($"[ChessNetworkManager] Error in fallback BroadcastCurrentGameState: {e2.Message}");
             }
         }
+    }
+    
+    private System.Collections.IEnumerator EndTurnAfterDelay(float delay) {
+        Debug.Log($"[ChessNetworkManager] Waiting {delay} seconds before ending turn");
+        yield return new WaitForSeconds(delay);
+    
+        if (turnManager != null) {
+            Debug.Log("[ChessNetworkManager] Ending turn after delay");
+            turnManager.EndTurn();
+        
+            // Wait a bit longer, then force refresh the pieces directly with a ClientRpc
+            yield return new WaitForSeconds(0.2f);
+            turnManager.ForceRefreshPiecesClientRpc();
+        } else {
+            Debug.LogError("[ChessNetworkManager] turnManager is null in EndTurnAfterDelay!");
+        }
+    
+        // Ensure pieces are refreshed after turn change
+        yield return new WaitForSeconds(0.1f);
+        RefreshAllPiecesInteractivity();
     }
     
     private void OnDestroy() {
@@ -641,12 +668,6 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Starts a network session as the host.
     /// </summary>
     public void StartHost() {
-        if (playerNameInputField == null)
-        {
-            Debug.LogWarning("playerNameInputField is null, using default name");
-            // Continue with a default value
-        }
-        
         try {
             // Reset intentional disconnect flag
             intentionalDisconnect = false;
@@ -809,52 +830,6 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
             Debug.LogError($"Error joining game: {ex.Message}");
             UpdateConnectionStatus($"Error: {ex.Message}");
             return false;
-        }
-    }
-    
-    public void UpdateBoardVisuals(string serializedGameState) {
-        // Load the game state
-        GameManager.Instance.LoadGame(serializedGameState);
-    
-        // Update piece interactivity based on the new game state
-        RefreshAllPiecesInteractivity();
-    
-        // Update the board visuals
-        foreach ((Square square, Piece piece) in GameManager.Instance.CurrentPieces) {
-            // Get the GameObject at this position
-            GameObject pieceGO = BoardManager.Instance.GetPieceGOAtPosition(square);
-        
-            // If there's no piece there but should be, create it
-            if (pieceGO == null) {
-                BoardManager.Instance.CreateAndPlacePieceGO(piece, square);
-            }
-            // If there's a piece there that doesn't match the current state, update it
-            else {
-                VisualPiece visualPiece = pieceGO.GetComponent<VisualPiece>();
-                if (visualPiece != null && visualPiece.PieceColor != piece.Owner) {
-                    // Remove incorrect piece and create correct one
-                    BoardManager.Instance.TryDestroyVisualPiece(square);
-                    BoardManager.Instance.CreateAndPlacePieceGO(piece, square);
-                }
-            }
-        }
-    
-        // Remove any pieces that are no longer in the game state
-        VisualPiece[] allPieces = FindObjectsOfType<VisualPiece>();
-        foreach (VisualPiece piece in allPieces) {
-            Square position = piece.CurrentSquare;
-            Piece boardPiece = GameManager.Instance.CurrentBoard[position];
-        
-            // If this visual piece has no corresponding piece in the game state, remove it
-            if (boardPiece == null) {
-                BoardManager.Instance.TryDestroyVisualPiece(position);
-            }
-        }
-    
-        // Update the UI
-        if (UIManager.Instance != null) {
-            // Trigger UI update (this would normally happen with GameResetToHalfMoveEvent)
-            UIManager.Instance.SendMessage("OnGameResetToHalfMove", SendMessageOptions.DontRequireReceiver);
         }
     }
 
@@ -1110,13 +1085,16 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     public void RefreshAllPiecesInteractivity() {
         // Find all ChessNetworkPieceController components in the scene
         ChessNetworkPieceController[] controllers = FindObjectsOfType<ChessNetworkPieceController>();
-        
+    
+        Debug.Log($"[ChessNetworkManager] RefreshAllPiecesInteractivity: Found {controllers.Length} pieces. " +
+                  $"Current turn: {GameManager.Instance.SideToMove}, Local player: {localPlayerSide}");
+    
         // Force update on each controller
         foreach (ChessNetworkPieceController controller in controllers) {
-            controller.ForceUpdateInteractivity();
+            if (controller != null) {
+                controller.ForceUpdateInteractivity();
+            }
         }
-        
-        if (verbose) Debug.Log($"Refreshed interactivity for {controllers.Length} pieces. Current turn: {GameManager.Instance.SideToMove}");
     }
 
     /// <summary>
@@ -1249,14 +1227,31 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         }
 
         // In network mode:
+        if (turnManager == null) {
+            Debug.LogError("[ChessNetworkManager] turnManager is null in CanMoveCurrentPiece!");
+            // Try to find it if it's not assigned
+            turnManager = GetComponentInChildren<NetworkTurnManager>();
+            if (turnManager == null) {
+                turnManager = FindObjectOfType<NetworkTurnManager>();
+            }
+        
+            if (turnManager == null) {
+                Debug.LogError("[ChessNetworkManager] Could not find NetworkTurnManager in the scene!");
+                return false;
+            }
+        }
+    
         // 1. Check if it's the player's piece
         bool isPlayersPiece = pieceSide == localPlayerSide;
-        
+    
         // 2. Check if it's their turn via TurnManager
         bool isPlayersTurn = turnManager.CanPlayerMove(localPlayerSide);
-
-        if (verbose) Debug.Log($"Can move check: Player's piece: {isPlayersPiece}, Player's turn: {isPlayersTurn}, Local side: {localPlayerSide}, Piece side: {pieceSide}");
+    
+        // Additional logging
+        Debug.Log($"[ChessNetworkManager] CanMoveCurrentPiece: Player's piece: {isPlayersPiece}, Player's turn: {isPlayersTurn}, " +
+                  $"Local side: {localPlayerSide}, Piece side: {pieceSide}, Current turn in GameManager: {GameManager.Instance.SideToMove}");
        
+        // Make sure both conditions are met
         return isPlayersPiece && isPlayersTurn;
     }
 
