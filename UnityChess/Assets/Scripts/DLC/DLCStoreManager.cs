@@ -71,13 +71,20 @@ public class DLCStoreManager : MonoBehaviour
             Debug.LogError("Close button reference is missing! Assign it in the Inspector.");
         }
 
-        // Initialize avatar cards
-        InitializeAvatarCards();
+        // Try to use AvatarFirestoreManager if available, otherwise initialize manually
+        if (AvatarFirestoreManager.Instance != null)
+        {
+            AvatarFirestoreManager.Instance.InitializeStore(this);
+        }
+        else
+        {
+            // Initialize avatar cards directly
+            InitializeAvatarCards();
+        }
     }
     
-    
-
-    private void InitializeAvatarCards()
+    // Make this method public so it can be called from AvatarFirestoreManager
+    public void InitializeAvatarCards()
     {
         // Set up each avatar card with data and event listeners
         if (avatarCards.Length >= 2)
@@ -108,6 +115,14 @@ public class DLCStoreManager : MonoBehaviour
 
     private void LoadAvatarPreview(AvatarCard card)
     {
+        // If AvatarLoader is available, use it
+        if (AvatarLoader.Instance != null)
+        {
+            AvatarLoader.Instance.LoadAvatar(card.avatarPath, card.previewImage);
+            return;
+        }
+
+        // Otherwise use direct Firebase loading
         // Get reference to the image in Firebase Storage
         StorageReference avatarRef = storageReference.Child(card.avatarPath);
 
@@ -207,11 +222,34 @@ public class DLCStoreManager : MonoBehaviour
 
             // Notify other players about the avatar change (in multiplayer implementation)
             NotifyAvatarChange(card.avatarPath);
+
+            // If using FirebaseManager, log purchase
+            if (FirebaseManager.Instance != null && FirebaseManager.Instance.IsInitialized)
+            {
+                FirebaseManager.Instance.LogPurchaseEvent(card.avatarName, card.avatarName, card.price);
+            }
+
+            // If using AvatarFirestoreManager, save purchase
+            if (AvatarFirestoreManager.Instance != null)
+            {
+                // Use a unique player ID in a real implementation
+                string playerId = SystemInfo.deviceUniqueIdentifier;
+                AvatarFirestoreManager.Instance.SavePurchase(playerId, card.avatarPath);
+            }
         }
     }
 
     private void DownloadAndSetAvatar(string avatarPath)
     {
+        // If AvatarLoader is available, use it
+        if (AvatarLoader.Instance != null)
+        {
+            AvatarLoader.Instance.LoadAvatar(avatarPath, playerAvatarImage);
+            currentAvatarURL = avatarPath;
+            return;
+        }
+
+        // Otherwise use direct Firebase loading
         // Get reference to the avatar in Firebase Storage
         StorageReference avatarRef = storageReference.Child(avatarPath);
 
@@ -240,8 +278,12 @@ public class DLCStoreManager : MonoBehaviour
         // Implementation would depend on your multiplayer setup
         Debug.Log("Notifying other players about avatar change: " + avatarPath);
         
-        // Example (pseudo-code):
-        // NetworkManager.Instance.NotifyAvatarChange(avatarPath);
+        // If NetworkAvatarManager is available, update the avatar
+        NetworkAvatarManager networkAvatarManager = GetComponent<NetworkAvatarManager>();
+        if (networkAvatarManager != null)
+        {
+            networkAvatarManager.UpdatePlayerAvatar(avatarPath);
+        }
     }
     
     private void OnEnable()
