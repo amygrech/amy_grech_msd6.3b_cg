@@ -82,8 +82,9 @@ public class FirebaseManager : MonoBehaviour
             Storage = FirebaseStorage.DefaultInstance;
             StorageRoot = Storage.RootReference;
         
-            // Initialize Database
-            Database = FirebaseDatabase.DefaultInstance.RootReference;
+            // Initialize Database - specify URL when getting instance
+            FirebaseDatabase database = FirebaseDatabase.GetInstance(app, "https://dlcstore-8ccb3.firebasedatabase.app");
+            Database = database.RootReference;
         
             IsInitialized = true;
             Debug.Log("Firebase initialized successfully");
