@@ -64,25 +64,37 @@ public class FirebaseManager : MonoBehaviour
     {
         try
         {
+            // Initialize Firebase with the options from the config file
+            FirebaseApp app = FirebaseApp.DefaultInstance;
+            if (app == null)
+            {
+                var options = new AppOptions
+                {
+                    DatabaseUrl = new Uri("https://dlcstore-8ccb3.firebasedatabase.app")
+                };
+                app = FirebaseApp.Create(options);
+            }
+        
             // Initialize Analytics
             FirebaseAnalytics.SetAnalyticsCollectionEnabled(true);
-            
+        
             // Initialize Storage
             Storage = FirebaseStorage.DefaultInstance;
-            StorageRoot = Storage.GetReferenceFromUrl("gs://dlcstore-8ccb3.firebasestorage.app");
-            
+            StorageRoot = Storage.GetReferenceFromUrl("gs://dlcstore-8ccb3.appspot.com");
+        
             // Initialize Database
             Database = FirebaseDatabase.DefaultInstance.RootReference;
-            
+        
             IsInitialized = true;
             Debug.Log("Firebase initialized successfully");
-            
+        
             // Trigger event
             OnFirebaseInitialized?.Invoke();
         }
         catch (Exception e)
         {
             Debug.LogError($"Firebase initialization error: {e.Message}");
+            Debug.LogException(e);
         }
     }
     
