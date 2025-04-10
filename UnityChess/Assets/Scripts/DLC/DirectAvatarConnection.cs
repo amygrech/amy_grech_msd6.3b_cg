@@ -55,11 +55,13 @@ public class DirectAvatarConnection : MonoBehaviour
     {
         Debug.Log($"DirectAvatarConnection: Updating avatar with path {avatarPath}");
         
-        // Determine if we're host or client
+        // CRITICAL FIX: Determine if we're host or client
         bool isHost = NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost;
         bool isClient = NetworkManager.Singleton != null && NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsHost;
         
-        // Update the appropriate image directly
+        Debug.Log($"Network status - IsHost: {isHost}, IsClient: {isClient}");
+        
+        // Update ONLY the appropriate image directly based on network role
         if (isHost)
         {
             if (hostImage != null)
@@ -78,6 +80,9 @@ public class DirectAvatarConnection : MonoBehaviour
             {
                 Debug.Log("Directly updating ClientImage sprite");
                 clientImage.sprite = avatarSprite;
+                
+                // CRITICAL FIX: Make sure we're not updating the host image as well
+                Debug.Log("Client purchase should not affect host image");
             }
             else
             {
