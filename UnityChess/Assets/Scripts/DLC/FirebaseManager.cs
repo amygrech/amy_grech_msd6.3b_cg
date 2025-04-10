@@ -80,7 +80,7 @@ public class FirebaseManager : MonoBehaviour
         
             // Initialize Storage
             Storage = FirebaseStorage.DefaultInstance;
-            StorageRoot = Storage.GetReferenceFromUrl("gs://dlcstore-8ccb3.appspot.com");
+            StorageRoot = Storage.RootReference;
         
             // Initialize Database
             Database = FirebaseDatabase.DefaultInstance.RootReference;

@@ -7,6 +7,7 @@ using Firebase.Storage;
 using Firebase.Extensions;
 using System;
 using System.Threading.Tasks;
+using DLC;
 using UnityEngine.Networking;
 
 public class DLCStoreManager : MonoBehaviour
@@ -30,6 +31,10 @@ public class DLCStoreManager : MonoBehaviour
     public string currentAvatarURL = "";
     public Image playerAvatarImage;
 
+    // Multiplayer references
+    [Header("Multiplayer")]
+    [SerializeField] private NetworkAvatarManager networkAvatarManager;
+
     // Firebase Storage
     private FirebaseStorage storage;
     private StorageReference storageReference;
@@ -50,16 +55,27 @@ public class DLCStoreManager : MonoBehaviour
         }
     }
 
-    // In DLCStoreManager.cs Start() method
     private void Start()
     {
         // Initialize Firebase Storage
-        storage = FirebaseStorage.DefaultInstance;
-        storageReference = storage.GetReferenceFromUrl("gs://dlcstore-8ccb3.firebasestorage.app");
+        try {
+            storage = FirebaseStorage.DefaultInstance;
+            storageReference = storage.RootReference; // Use RootReference instead of GetReferenceFromUrl
+            Debug.Log("Firebase Storage initialized with root reference: " + storageReference.Path);
+        }
+        catch (System.Exception ex) {
+            Debug.LogError("Error initializing Firebase Storage: " + ex.Message);
+        }
 
         // Initialize UI
         UpdateCreditsDisplay();
     
+        // Try to find NetworkAvatarManager if not set
+        if (networkAvatarManager == null)
+        {
+            networkAvatarManager = FindObjectOfType<NetworkAvatarManager>();
+        }
+
         // Set up button listeners
         if (closeButton != null)
         {
@@ -115,31 +131,71 @@ public class DLCStoreManager : MonoBehaviour
 
     private void LoadAvatarPreview(AvatarCard card)
     {
+        Debug.Log($"Loading preview for avatar: {card.avatarName}, path: {card.avatarPath}");
+        
+        // Use a default preview image for testing if the path starts with "assets/"
+        if (card.avatarPath.StartsWith("assets/"))
+        {
+            // For testing, we can use a default sprite until Firebase is properly configured
+            // This allows you to test the UI without Firebase working
+            if (Application.isEditor)
+            {
+                // Load a default texture for testing in editor
+                Texture2D defaultTexture = Resources.Load<Texture2D>("DefaultAvatar");
+                if (defaultTexture != null)
+                {
+                    card.previewImage.sprite = Sprite.Create(
+                        defaultTexture,
+                        new Rect(0, 0, defaultTexture.width, defaultTexture.height),
+                        Vector2.one * 0.5f
+                    );
+                    Debug.Log($"Using default preview for {card.avatarName}");
+                    return;
+                }
+            }
+        }
+
         // If AvatarLoader is available, use it
         if (AvatarLoader.Instance != null)
         {
+            Debug.Log($"Using AvatarLoader for {card.avatarName}");
             AvatarLoader.Instance.LoadAvatar(card.avatarPath, card.previewImage);
             return;
         }
 
-        // Otherwise use direct Firebase loading
-        // Get reference to the image in Firebase Storage
-        StorageReference avatarRef = storageReference.Child(card.avatarPath);
-
-        // Download URL
-        avatarRef.GetDownloadUrlAsync().ContinueWithOnMainThread(task =>
+        try
         {
-            if (task.IsFaulted || task.IsCanceled)
+            // Otherwise use direct Firebase loading
+            // Get reference to the image in Firebase Storage
+            StorageReference avatarRef = storageReference.Child(card.avatarPath);
+            Debug.Log($"Getting Firebase reference for {card.avatarPath}");
+
+            // Download URL
+            avatarRef.GetDownloadUrlAsync().ContinueWithOnMainThread(task =>
             {
-                Debug.LogError("Failed to get download URL: " + task.Exception);
-            }
-            else
-            {
-                // Got the download URL
-                string downloadUrl = task.Result.ToString();
-                StartCoroutine(LoadImageFromURL(downloadUrl, card.previewImage));
-            }
-        });
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    Debug.LogError($"Failed to get download URL for {card.avatarName}: {task.Exception}");
+                    
+                    // Use a solid color as fallback
+                    card.previewImage.color = new Color(0.8f, 0.8f, 0.8f);
+                }
+                else
+                {
+                    // Got the download URL
+                    string downloadUrl = task.Result.ToString();
+                    Debug.Log($"Got download URL for {card.avatarName}: {downloadUrl}");
+                    StartCoroutine(LoadImageFromURL(downloadUrl, card.previewImage));
+                }
+            });
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"Error loading preview for {card.avatarName}: {ex.Message}");
+            
+            // Use a solid color as fallback
+            card.previewImage.color = new Color(0.8f, 0.8f, 0.8f);
+        }
     }
 
     private IEnumerator LoadImageFromURL(string url, Image targetImage)
@@ -220,9 +276,6 @@ public class DLCStoreManager : MonoBehaviour
             // Update UI states
             UpdateCardStates();
 
-            // Notify other players about the avatar change (in multiplayer implementation)
-            NotifyAvatarChange(card.avatarPath);
-
             // If using FirebaseManager, log purchase
             if (FirebaseManager.Instance != null && FirebaseManager.Instance.IsInitialized)
             {
@@ -241,48 +294,122 @@ public class DLCStoreManager : MonoBehaviour
 
     private void DownloadAndSetAvatar(string avatarPath)
     {
+        Debug.Log($"Downloading and setting avatar: {avatarPath}");
+        
+        // For testing - use default texture if we're in the editor and it's one of our test avatars
+        if (Application.isEditor && avatarPath.StartsWith("assets/"))
+        {
+            string defaultTextureName = "DefaultAvatar";
+            
+            // Try to extract a more specific texture name
+            if (avatarPath.Contains("turtle"))
+                defaultTextureName = "TurtleAvatar";
+            else if (avatarPath.Contains("shell"))
+                defaultTextureName = "ShellAvatar";
+                
+            Texture2D defaultTexture = Resources.Load<Texture2D>(defaultTextureName);
+            if (defaultTexture != null)
+            {
+                Sprite sprite = Sprite.Create(
+                    defaultTexture,
+                    new Rect(0, 0, defaultTexture.width, defaultTexture.height),
+                    Vector2.one * 0.5f
+                );
+                
+                // Set to player's avatar image
+                playerAvatarImage.sprite = sprite;
+                
+                // Also try to set it directly on the appropriate game object
+                if (DirectAvatarConnection.Instance != null)
+                {
+                    DirectAvatarConnection.Instance.UpdateAvatar(avatarPath, sprite);
+                }
+                
+                currentAvatarURL = avatarPath;
+                
+                // Notify other players about the avatar change
+                NotifyAvatarChange(avatarPath);
+                
+                Debug.Log($"Using default texture for {avatarPath}");
+                return;
+            }
+        }
+        
         // If AvatarLoader is available, use it
         if (AvatarLoader.Instance != null)
         {
+            Debug.Log($"Using AvatarLoader for avatar: {avatarPath}");
             AvatarLoader.Instance.LoadAvatar(avatarPath, playerAvatarImage);
             currentAvatarURL = avatarPath;
+            
+            // Notify other players about the avatar change via NetworkAvatarManager
+            NotifyAvatarChange(avatarPath);
+            
             return;
         }
 
-        // Otherwise use direct Firebase loading
-        // Get reference to the avatar in Firebase Storage
-        StorageReference avatarRef = storageReference.Child(avatarPath);
-
-        // Download URL
-        avatarRef.GetDownloadUrlAsync().ContinueWithOnMainThread(task =>
+        try
         {
-            if (task.IsFaulted || task.IsCanceled)
+            // Otherwise use direct Firebase loading
+            // Get reference to the avatar in Firebase Storage
+            StorageReference avatarRef = storageReference.Child(avatarPath);
+            Debug.Log($"Getting Firebase reference for avatar: {avatarPath}");
+
+            // Download URL
+            avatarRef.GetDownloadUrlAsync().ContinueWithOnMainThread(task =>
             {
-                Debug.LogError("Failed to get download URL: " + task.Exception);
-            }
-            else
-            {
-                // Got the download URL
-                string downloadUrl = task.Result.ToString();
-                currentAvatarURL = downloadUrl;
-                
-                // Download and set the avatar image
-                StartCoroutine(LoadImageFromURL(downloadUrl, playerAvatarImage));
-            }
-        });
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    Debug.LogError($"Failed to get download URL for avatar: {task.Exception}");
+                    
+                    // Still notify the network about the avatar change
+                    // This allows the system to work with path references even if actual download fails
+                    currentAvatarURL = avatarPath;
+                    NotifyAvatarChange(avatarPath);
+                }
+                else
+                {
+                    // Got the download URL
+                    string downloadUrl = task.Result.ToString();
+                    Debug.Log($"Got download URL for avatar: {downloadUrl}");
+                    currentAvatarURL = downloadUrl;
+                    
+                    // Download and set the avatar image
+                    StartCoroutine(LoadImageFromURL(downloadUrl, playerAvatarImage));
+                    
+                    // Notify other players about the avatar change
+                    NotifyAvatarChange(avatarPath);
+                }
+            });
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"Error downloading avatar: {ex.Message}");
+            
+            // Still update the current avatar URL and notify network
+            currentAvatarURL = avatarPath;
+            NotifyAvatarChange(avatarPath);
+        }
     }
 
     private void NotifyAvatarChange(string avatarPath)
     {
-        // This method would use Netcode to notify other players about the avatar change
-        // Implementation would depend on your multiplayer setup
-        Debug.Log("Notifying other players about avatar change: " + avatarPath);
-        
-        // If NetworkAvatarManager is available, update the avatar
-        NetworkAvatarManager networkAvatarManager = GetComponent<NetworkAvatarManager>();
+        // Use NetworkAvatarManager to notify other players about the avatar change
         if (networkAvatarManager != null)
         {
+            Debug.Log("Notifying other players about avatar change: " + avatarPath);
             networkAvatarManager.UpdatePlayerAvatar(avatarPath);
+        }
+        else
+        {
+            Debug.LogWarning("NetworkAvatarManager not found! Avatar change won't be synchronized.");
+            
+            // Try to find it if not assigned
+            networkAvatarManager = FindObjectOfType<NetworkAvatarManager>();
+            if (networkAvatarManager != null)
+            {
+                networkAvatarManager.UpdatePlayerAvatar(avatarPath);
+            }
         }
     }
     

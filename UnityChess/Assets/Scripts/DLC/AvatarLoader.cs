@@ -62,9 +62,16 @@ public class AvatarLoader : MonoBehaviour
         else
         {
             // Fallback to direct initialization
-            storage = FirebaseStorage.DefaultInstance;
-            storageRoot = storage.GetReferenceFromUrl("gs://dlcstore-8ccb3.firebasestorage.app");
-            Debug.Log("Directly initialized Firebase Storage");
+            try
+            {
+                storage = FirebaseStorage.DefaultInstance;
+                storageRoot = storage.RootReference; // Use RootReference instead of GetReferenceFromUrl
+                Debug.Log("Directly initialized Firebase Storage");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Failed to initialize Firebase Storage: {ex.Message}");
+            }
         }
     }
     
@@ -73,7 +80,23 @@ public class AvatarLoader : MonoBehaviour
     /// </summary>
     public void LoadAvatar(string avatarPath, Image targetImage, Action onComplete = null, Action<Exception> onError = null)
     {
-        StartCoroutine(LoadAvatarRoutine(avatarPath, targetImage, onComplete, onError));
+        // Fix the path - we need to remove "assets/" prefix if it exists
+        string normalizedPath = NormalizeAvatarPath(avatarPath);
+        
+        StartCoroutine(LoadAvatarRoutine(normalizedPath, targetImage, onComplete, onError));
+    }
+    
+    // Normalize the path to match what's in Firebase
+    private string NormalizeAvatarPath(string path)
+    {
+        // If the path starts with "assets/", just get the filename
+        if (path.StartsWith("assets/"))
+        {
+            string fileName = Path.GetFileName(path);
+            Debug.Log($"Normalized path from {path} to {fileName}");
+            return fileName;
+        }
+        return path;
     }
     
     private IEnumerator LoadAvatarRoutine(string avatarPath, Image targetImage, Action onComplete, Action<Exception> onError)
@@ -95,8 +118,56 @@ public class AvatarLoader : MonoBehaviour
             yield break;
         }
         
+        // Try to load a fallback from Resources
+        if (TryLoadFallbackAvatar(avatarPath, targetImage))
+        {
+            onComplete?.Invoke();
+            yield break;
+        }
+        
         // If not cached or stored locally, download from Firebase
         yield return DownloadFromFirebaseRoutine(avatarPath, localFilePath, targetImage, onComplete, onError);
+    }
+    
+    private bool TryLoadFallbackAvatar(string avatarPath, Image targetImage)
+    {
+        // Try to load from Resources based on the filename
+        string resourceName = null;
+        string fileName = Path.GetFileName(avatarPath).ToLower();
+        
+        if (fileName.Contains("turtle"))
+        {
+            resourceName = "TurtleAvatar";
+        }
+        else if (fileName.Contains("shell"))
+        {
+            resourceName = "ShellAvatar";
+        }
+        else
+        {
+            resourceName = "DefaultAvatar";
+        }
+        
+        Texture2D texture = Resources.Load<Texture2D>(resourceName);
+        if (texture != null)
+        {
+            Sprite sprite = Sprite.Create(
+                texture,
+                new Rect(0, 0, texture.width, texture.height),
+                Vector2.one * 0.5f
+            );
+            
+            targetImage.sprite = sprite;
+            
+            // Cache the sprite
+            avatarCache[avatarPath] = sprite;
+            
+            Debug.Log($"Using fallback avatar {resourceName} for {avatarPath}");
+            return true;
+        }
+        
+        Debug.LogWarning($"Fallback avatar {resourceName} not found in Resources");
+        return false;
     }
     
     private IEnumerator LoadFromLocalFileRoutine(string filePath, Image targetImage)
@@ -129,8 +200,28 @@ public class AvatarLoader : MonoBehaviour
     
     private IEnumerator DownloadFromFirebaseRoutine(string avatarPath, string localFilePath, Image targetImage, Action onComplete, Action<Exception> onError)
     {
-        // Get reference to the file in Firebase Storage
-        StorageReference avatarRef = storageRoot.Child(avatarPath);
+        if (storage == null || storageRoot == null)
+        {
+            Debug.LogError("Firebase Storage not initialized. Cannot download avatar.");
+            onError?.Invoke(new InvalidOperationException("Firebase Storage not initialized"));
+            yield break;
+        }
+        
+        StorageReference avatarRef = null;
+        
+        // Wrap the entire download process to handle exceptions
+        try
+        {
+            // Get reference to the file in Firebase Storage
+            avatarRef = storageRoot.Child(avatarPath);
+            Debug.Log($"Attempting to download from Firebase: {avatarPath}");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error creating Firebase reference: {ex.Message}");
+            onError?.Invoke(ex);
+            yield break;
+        }
         
         // Get the download URL
         var urlTask = avatarRef.GetDownloadUrlAsync();
@@ -144,54 +235,55 @@ public class AvatarLoader : MonoBehaviour
         }
         
         string downloadUrl = urlTask.Result.ToString();
-        UnityEngine.Networking.UnityWebRequest request = null;
+        Debug.Log($"Got download URL: {downloadUrl}");
         
-        try
+        // Download the image
+        UnityEngine.Networking.UnityWebRequest request = 
+            UnityEngine.Networking.UnityWebRequestTexture.GetTexture(downloadUrl);
+        
+        // Send the request - this is safe to yield return
+        yield return request.SendWebRequest();
+        
+        if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
         {
-            // Download the image
-            request = UnityEngine.Networking.UnityWebRequestTexture.GetTexture(downloadUrl);
-            request.SendWebRequest();
+            // Get the downloaded texture
+            Texture2D texture = UnityEngine.Networking.DownloadHandlerTexture.GetContent(request);
             
-            if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+            Sprite sprite = Sprite.Create(
+                texture,
+                new Rect(0, 0, texture.width, texture.height),
+                Vector2.one * 0.5f
+            );
+            
+            // Apply to the target image
+            targetImage.sprite = sprite;
+            
+            // Cache in memory
+            avatarCache[avatarPath] = sprite;
+            
+            // Save to local storage
+            try
             {
-                // Get the downloaded texture
-                Texture2D texture = UnityEngine.Networking.DownloadHandlerTexture.GetContent(request);
-                
-                // Create a sprite from the texture
-                Sprite sprite = Sprite.Create(
-                    texture,
-                    new Rect(0, 0, texture.width, texture.height),
-                    Vector2.one * 0.5f
-                );
-                
-                // Apply to the target image
-                targetImage.sprite = sprite;
-                
-                // Cache in memory
-                avatarCache[avatarPath] = sprite;
-                
-                // Save to local storage
                 SaveTextureToFile(texture, localFilePath);
-                
-                onComplete?.Invoke();
             }
-            else
+            catch (Exception ex)
             {
-                Debug.LogError($"Failed to download avatar: {request.error}");
-                onError?.Invoke(new Exception(request.error));
+                Debug.LogWarning($"Could not save texture to file: {ex.Message}");
+                // Continue since this is not critical
             }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"Error downloading avatar: {ex.Message}");
-            onError?.Invoke(ex);
-        }
-        finally
-        {
-            if (request != null)
+            
+            // Update any additional UI
+            if (DirectAvatarConnection.Instance != null)
             {
-                request.Dispose();
+                DirectAvatarConnection.Instance.UpdateAvatarFromTexture(avatarPath, texture);
             }
+            
+            onComplete?.Invoke();
+        }
+        else
+        {
+            Debug.LogError($"Failed to download avatar: {request.error}");
+            onError?.Invoke(new Exception(request.error));
         }
     }
     
@@ -217,46 +309,5 @@ public class AvatarLoader : MonoBehaviour
             input = input.Replace(c, '_');
         }
         return input;
-    }
-    
-    /// <summary>
-    /// Downloads all avatars from a collection in Firestore and caches them locally
-    /// </summary>
-    public void PreloadAvatars(List<string> avatarPaths, Action onComplete = null, Action<float> onProgress = null)
-    {
-        StartCoroutine(PreloadAvatarsRoutine(avatarPaths, onComplete, onProgress));
-    }
-    
-    private IEnumerator PreloadAvatarsRoutine(List<string> avatarPaths, Action onComplete, Action<float> onProgress)
-    {
-        int total = avatarPaths.Count;
-        int completed = 0;
-        
-        foreach (string path in avatarPaths)
-        {
-            // Placeholder image for loading
-            Image dummyImage = new GameObject("TempImage").AddComponent<Image>();
-            
-            // Use the existing download method
-            var downloadRoutine = LoadAvatarRoutine(
-                path, 
-                dummyImage, 
-                onComplete: null, 
-                onError: (ex) => Debug.LogWarning($"Failed to preload {path}: {ex.Message}")
-            );
-            
-            yield return downloadRoutine;
-            
-            // Destroy the temporary image
-            Destroy(dummyImage.gameObject);
-            
-            completed++;
-            onProgress?.Invoke((float)completed / total);
-            
-            // Short delay to avoid overwhelming the system
-            yield return new WaitForSeconds(0.1f);
-        }
-        
-        onComplete?.Invoke();
     }
 }
