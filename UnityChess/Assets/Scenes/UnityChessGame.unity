@@ -3575,7 +3575,6 @@ GameObject:
   - component: {fileID: 1589140724}
   - component: {fileID: 1589140725}
   - component: {fileID: 1589140728}
-  - component: {fileID: 1589140731}
   - component: {fileID: 1589140730}
   m_Layer: 0
   m_Name: ChessNetworkManager
@@ -3708,95 +3707,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 1589140723}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a35a555521a4f4060a13e83ad13671d7, type: 3}
+  m_Script: {fileID: 11500000, guid: f86a448d329f4427ba4a122b69175847, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  <IsLocalPlayer>k__BackingField: 0
-  <IsOwner>k__BackingField: 0
-  <IsServer>k__BackingField: 0
-  <ServerIsHost>k__BackingField: 0
-  <IsClient>k__BackingField: 0
-  <IsHost>k__BackingField: 0
-  <IsOwnedByServer>k__BackingField: 0
-  <IsSpawned>k__BackingField: 0
-  m_NetworkObject: {fileID: 0}
-  <NetworkObjectId>k__BackingField: 0
-  <NetworkBehaviourId>k__BackingField: 0
-  NetworkBehaviourIdCache: 0
-  <OwnerClientId>k__BackingField: 0
-  m_VarInit: 0
-  <m_TargetIdBeingSynchronized>k__BackingField: 0
-  matchId: 
-  localPlayerSide: 0
-  winnerSide: 0
-  matchEnded: 0
-  totalMoves: 0
-  openingSequence: 
-  totalThinkingTime: 0
-  captureMoves: 0
-  checkMoves: 0
-  endGameCondition: 
-  wasDisconnected: 0
-  disconnectionCount: 0
-  totalDisconnectionTime: 0
-  gameManager: {fileID: 0}
-  networkManager: {fileID: 0}
-  firebaseManager: {fileID: 0}
-  lastMoveTime: 0
-  networkTotalMoves: {m_NetworkBehaviour: {fileID: 0}, m_InternalNetworkManager: {fileID: 0},
-    m_IsDirty: 0, <Name>k__BackingField: , NetworkUpdaterCheck: 0, m_InternalValue: 0,
-    m_InternalOriginalValue: 0, m_PreviousValue: 0, m_HasPreviousValue: 0, m_IsDisposed: 0}
-  networkCaptureMoves: {m_NetworkBehaviour: {fileID: 0}, m_InternalNetworkManager: {fileID: 0},
-    m_IsDirty: 0, <Name>k__BackingField: , NetworkUpdaterCheck: 0, m_InternalValue: 0,
-    m_InternalOriginalValue: 0, m_PreviousValue: 0, m_HasPreviousValue: 0, m_IsDisposed: 0}
-  networkCheckMoves: {m_NetworkBehaviour: {fileID: 0}, m_InternalNetworkManager: {fileID: 0},
-    m_IsDirty: 0, <Name>k__BackingField: , NetworkUpdaterCheck: 0, m_InternalValue: 0,
-    m_InternalOriginalValue: 0, m_PreviousValue: 0, m_HasPreviousValue: 0, m_IsDisposed: 0}
---- !u!114 &1589140731
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1589140723}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9b066062cd279424998d8338ad71cb2e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  <IsLocalPlayer>k__BackingField: 0
-  <IsOwner>k__BackingField: 0
-  <IsServer>k__BackingField: 0
-  <ServerIsHost>k__BackingField: 0
-  <IsClient>k__BackingField: 0
-  <IsHost>k__BackingField: 0
-  <IsOwnedByServer>k__BackingField: 0
-  <IsSpawned>k__BackingField: 0
-  m_NetworkObject: {fileID: 0}
-  <NetworkObjectId>k__BackingField: 0
-  <NetworkBehaviourId>k__BackingField: 0
-  NetworkBehaviourIdCache: 0
-  <OwnerClientId>k__BackingField: 0
-  m_VarInit: 0
-  <m_TargetIdBeingSynchronized>k__BackingField: 0
-  gameStatePanel: {fileID: 0}
-  gameIdInputField: {fileID: 0}
-  saveGameButton: {fileID: 0}
-  loadGameButton: {fileID: 0}
-  statusText: {fileID: 0}
-  closeButton: {fileID: 0}
-  autoSaveToggle: {fileID: 0}
-  autoSaveInterval: 60
-  enableAutoSave: 0
-  gameManager: {fileID: 0}
-  networkManager: {fileID: 0}
-  firebaseManager: {fileID: 0}
-  analyticsManager: {fileID: 0}
-  currentGameId: 
-  lastSavedMoveIndex: -1
-  networkGameId: {m_NetworkBehaviour: {fileID: 0}, m_InternalNetworkManager: {fileID: 0},
-    m_IsDirty: 0, <Name>k__BackingField: , NetworkUpdaterCheck: 0, m_HasPreviousValue: 0,
-    m_IsDisposed: 0}
+  currentTurn:
+    m_InternalValue: 0
+  canMove:
+    m_InternalValue: 1
+  verbose: 1
 --- !u!1 &1594174423
 GameObject:
   m_ObjectHideFlags: 0

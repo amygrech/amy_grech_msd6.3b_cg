@@ -213,33 +213,18 @@ public class NetworkTurnManager : NetworkBehaviour
 
         Debug.Log($"[NetworkTurnManager] Server received turn change request: {fromTurn} to {toTurn}");
 
-        // Verify the current game state
-        Side currentGameSide = GameManager.Instance.SideToMove;
-        int currentGameTurn = currentGameSide == Side.White ? 0 : 1;
-
-        // If the game state and network turn are out of sync, trust the game state
-        if (currentTurn.Value != currentGameTurn)
+        if (currentTurn.Value == fromTurn)
         {
-            Debug.LogWarning(
-                $"[NetworkTurnManager] Network turn ({currentTurn.Value}) doesn't match game state ({currentGameTurn}). Correcting...");
-            currentTurn.Value = currentGameTurn;
-        }
-
-        // FIX: More permissive turn change logic - respect the client request
-        // as long as it makes logical sense in the game context
-        if (toTurn != currentTurn.Value)
-        {
-            // Change turn
-            Debug.Log($"[NetworkTurnManager] Changing turn to {(toTurn == 0 ? "White" : "Black")}");
             currentTurn.Value = toTurn;
-            canMove.Value = true;
             UpdateTurnStateClientRpc(toTurn);
+            Debug.Log($"[NetworkTurnManager] Turn changed to {toTurn}");
         }
         else
         {
-            Debug.Log($"[NetworkTurnManager] Turn is already {(toTurn == 0 ? "White" : "Black")}, no change needed");
+            Debug.LogWarning($"[NetworkTurnManager] RequestTurnChange ignored. Current turn was {currentTurn.Value}, expected {fromTurn}");
         }
     }
+
 
     // This is the critical method that determines if a player can move
     public bool CanPlayerMove(Side playerSide)

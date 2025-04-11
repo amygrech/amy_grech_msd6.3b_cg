@@ -12,11 +12,13 @@ using System;
 /// Uses game state synchronization instead of NetworkObject components.
 /// Enhanced with connection management features for player joining, leaving, and reconnection.
 /// </summary>
-public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
+public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager>
+{
     private NetworkTurnManager turnManager;
-    
-    [Header("Network UI")]
-    [SerializeField] private GameObject networkPanel;
+
+    [Header("Network UI")] [SerializeField]
+    private GameObject networkPanel;
+
     [SerializeField] private Button hostButton;
     [SerializeField] private Button clientButton;
     [SerializeField] private Button disconnectButton;
@@ -24,42 +26,46 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     [SerializeField] private Text connectionStatusText;
     [SerializeField] private InputField playerNameInputField;
 
-    [Header("Connection Status UI")]
-    [SerializeField] private GameObject statusPanel;
+    [Header("Connection Status UI")] [SerializeField]
+    private GameObject statusPanel;
+
     [SerializeField] private Text playerListText;
     [SerializeField] private Text gameStatusText;
     [SerializeField] private float statusUpdateInterval = 1.0f;
 
-    [Header("Game References")]
-    [SerializeField] private GameManager gameManager;
+    [Header("Game References")] [SerializeField]
+    private GameManager gameManager;
 
-    [Header("Reconnection Settings")]
-    [SerializeField] private bool allowReconnection = true;
+    [Header("Reconnection Settings")] [SerializeField]
+    private bool allowReconnection = true;
+
     [SerializeField] private float reconnectionTimeout = 30f;
     [SerializeField] private Text reconnectionStatusText;
     [SerializeField] private GameObject reconnectionPanel;
     [SerializeField] private Button reconnectButton;
 
-    [Header("Connection Error Handling")]
-    [SerializeField] private Text connectionErrorText;
+    [Header("Connection Error Handling")] [SerializeField]
+    private Text connectionErrorText;
+
     [SerializeField] private Button retryConnectionButton;
     [SerializeField] private float connectionTimeout = 15f;
 
-    [Header("Integration Settings")]
-    [SerializeField] private bool useSessionManager = true;
+    [Header("Integration Settings")] [SerializeField]
+    private bool useSessionManager = true;
+
     [SerializeField] private bool useNetworkErrorHandler = true;
     [SerializeField] private bool useReconnectionManager = true;
 
     // Track the local player's side
     private Side localPlayerSide = Side.White;
-    
+
     // Network variables
     private bool gameStarted = false;
     private float syncTimer = 0f;
     private const float syncInterval = 0.1f; // Sync 10 times per second for better responsiveness
     private string lastSyncedState = string.Empty;
     private float statusUpdateTimer = 0f;
-    
+
     // Reconnection variables
     private string lastKnownConnectionData = string.Empty;
     private float disconnectTime = 0f;
@@ -83,7 +89,8 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     // Debug logging
     [SerializeField] private bool verbose = true;
 
-    private void Start() {
+    private void Start()
+    {
         // Set up event listeners
         if (hostButton != null) hostButton.onClick.AddListener(StartHost);
         if (clientButton != null) clientButton.onClick.AddListener(StartClient);
@@ -92,16 +99,20 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (retryConnectionButton != null) retryConnectionButton.onClick.AddListener(RetryConnection);
 
         // Subscribe to network events
-        if (NetworkManager.Singleton != null) {
+        if (NetworkManager.Singleton != null)
+        {
             NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
-        } else {
+        }
+        else
+        {
             Debug.LogError("NetworkManager.Singleton is null. Make sure NetworkManager is in the scene.");
         }
 
         // Get player connection manager
         playerConnectionManager = GetComponent<PlayerConnectionManager>();
-        if (playerConnectionManager == null) {
+        if (playerConnectionManager == null)
+        {
             playerConnectionManager = gameObject.AddComponent<PlayerConnectionManager>();
             Debug.Log("Added PlayerConnectionManager component");
         }
@@ -114,7 +125,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
 
         // Ensure the disconnect button is initially disabled
         if (disconnectButton != null) disconnectButton.interactable = false;
-        
+
         // Display the network panel on start
         if (networkPanel != null) networkPanel.SetActive(true);
         if (statusPanel != null) statusPanel.SetActive(false);
@@ -124,81 +135,95 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (connectionErrorText != null) connectionErrorText.gameObject.SetActive(false);
 
         UpdateConnectionStatus("Not Connected");
-        
+
         // Subscribe to game events
         GameManager.MoveExecutedEvent += OnMoveExecuted;
-        
+
         // Set default player name if empty
-        if (playerNameInputField != null && string.IsNullOrEmpty(playerNameInputField.text)) {
+        if (playerNameInputField != null && string.IsNullOrEmpty(playerNameInputField.text))
+        {
             playerNameInputField.text = "Player" + UnityEngine.Random.Range(1000, 9999);
         }
 
         // Subscribe to network error events if using NetworkErrorHandler
-        if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null) {
+        if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null)
+        {
             NetworkErrorHandler.OnNetworkError += OnNetworkError;
         }
-        
+
         // Create the turn manager if it doesn't exist
         turnManager = GetComponent<NetworkTurnManager>();
-        if (turnManager == null) {
+        if (turnManager == null)
+        {
             turnManager = gameObject.AddComponent<NetworkTurnManager>();
         }
     }
-    
-    public void HandleSuccessfulMove() {
+
+    public void HandleSuccessfulMove()
+    {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
 
         Debug.Log("[ChessNetworkManager] HandleSuccessfulMove called");
 
-        try {
+        try
+        {
             // Lock movement immediately after a move
-            if (turnManager != null) {
+            if (turnManager != null)
+            {
                 turnManager.LockMovement();
             }
-        
+
             // Broadcast the current game state
             BroadcastCurrentGameState();
-        
+
             // Force update piece interactivity right away
             RefreshAllPiecesInteractivity();
-        
+
             // End the turn with delay to ensure state synchronization
             StartCoroutine(EndTurnAfterDelay(0.5f));
-        } catch (System.Exception e) {
+        }
+        catch (System.Exception e)
+        {
             Debug.LogError($"[ChessNetworkManager] Error in HandleSuccessfulMove: {e.Message}\n{e.StackTrace}");
         }
     }
-    
-    private System.Collections.IEnumerator EndTurnAfterDelay(float delay) {
+
+    private System.Collections.IEnumerator EndTurnAfterDelay(float delay)
+    {
         Debug.Log($"[ChessNetworkManager] Waiting {delay} seconds before ending turn");
         yield return new WaitForSeconds(delay);
-    
-        if (turnManager != null) {
+
+        if (turnManager != null)
+        {
             Debug.Log("[ChessNetworkManager] Ending turn after delay");
             turnManager.EndTurn();
-        
+
             // Wait a bit longer, then force refresh the pieces directly with a ClientRpc
             yield return new WaitForSeconds(0.2f);
             turnManager.ForceRefreshPiecesClientRpc();
-        } else {
+        }
+        else
+        {
             Debug.LogError("[ChessNetworkManager] turnManager is null in EndTurnAfterDelay!");
         }
-    
+
         // Ensure pieces are refreshed after turn change
         yield return new WaitForSeconds(0.1f);
         RefreshAllPiecesInteractivity();
     }
-    
-    private void OnDestroy() {
+
+    private void OnDestroy()
+    {
         // Unsubscribe from network events
-        if (NetworkManager.Singleton != null) {
+        if (NetworkManager.Singleton != null)
+        {
             NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
             NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
         }
-        
+
         // Unsubscribe from game events
         GameManager.MoveExecutedEvent -= OnMoveExecuted;
-        
+
         // Unsubscribe from player connection events
         PlayerConnectionManager.ConnectionStatusChangedEvent -= OnConnectionStatusChanged;
         PlayerConnectionManager.PlayerConnectedEvent -= OnPlayerConnected;
@@ -206,71 +231,91 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         PlayerConnectionManager.PlayerReconnectedEvent -= OnPlayerReconnected;
 
         // Unsubscribe from network error events
-        if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null) {
+        if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null)
+        {
             NetworkErrorHandler.OnNetworkError -= OnNetworkError;
         }
 
         // Cancel any coroutines
-        if (connectionTimeoutCoroutine != null) {
+        if (connectionTimeoutCoroutine != null)
+        {
             StopCoroutine(connectionTimeoutCoroutine);
         }
-        
-        if (reconnectionTimeoutCoroutine != null) {
+
+        if (reconnectionTimeoutCoroutine != null)
+        {
             StopCoroutine(reconnectionTimeoutCoroutine);
         }
     }
-    
-    private void Update() {
+
+    private void Update()
+    {
         // Handle game state sync from host to clients
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost && gameStarted) {
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost && gameStarted)
+        {
             syncTimer += Time.deltaTime;
-            if (syncTimer >= syncInterval) {
+            if (syncTimer >= syncInterval)
+            {
                 syncTimer = 0f;
-                
+
                 // Get current game state
                 string currentState = GameManager.Instance.SerializeGame();
                 int currentMoveCount = GameManager.Instance.LatestHalfMoveIndex;
-                
+
                 // Only send if state has changed or move count has changed
-                if (currentState != lastSyncedState || currentMoveCount != lastSyncedMoveCount) {
+                if (currentState != lastSyncedState || currentMoveCount != lastSyncedMoveCount)
+                {
                     lastSyncedState = currentState;
                     lastSyncedMoveCount = currentMoveCount;
                     SyncGameStateClientRpc(currentState);
-                    if (verbose) Debug.Log("[HOST] Game state synchronized to clients: " + currentState.Substring(0, Mathf.Min(30, currentState.Length)) + "...");
+                    if (verbose)
+                        Debug.Log("[HOST] Game state synchronized to clients: " +
+                                  currentState.Substring(0, Mathf.Min(30, currentState.Length)) + "...");
                 }
             }
         }
-        
+
         // Update status panel periodically
-        if (statusPanel != null && statusPanel.activeSelf) {
+        if (statusPanel != null && statusPanel.activeSelf)
+        {
             statusUpdateTimer += Time.deltaTime;
-            if (statusUpdateTimer >= statusUpdateInterval) {
+            if (statusUpdateTimer >= statusUpdateInterval)
+            {
                 statusUpdateTimer = 0f;
                 UpdateStatusPanel();
             }
         }
-        
+
         // Track reconnection state
-        if (allowReconnection && NetworkManager.Singleton != null && !NetworkManager.Singleton.IsConnectedClient && wasConnected && !attemptingReconnection && !intentionalDisconnect) {
+        if (allowReconnection && NetworkManager.Singleton != null && !NetworkManager.Singleton.IsConnectedClient &&
+            wasConnected && !attemptingReconnection && !intentionalDisconnect)
+        {
             // We were connected but now we're not
-            if (disconnectTime == 0f) {
+            if (disconnectTime == 0f)
+            {
                 disconnectTime = Time.time;
-                
+
                 // Show reconnection panel
-                if (reconnectionPanel != null) {
+                if (reconnectionPanel != null)
+                {
                     reconnectionPanel.SetActive(true);
                 }
             }
-            
+
             // Update reconnection status
-            if (reconnectionStatusText != null) {
+            if (reconnectionStatusText != null)
+            {
                 float timeLeft = reconnectionTimeout - (Time.time - disconnectTime);
-                if (timeLeft > 0) {
+                if (timeLeft > 0)
+                {
                     reconnectionStatusText.text = $"Disconnected. You can reconnect for {timeLeft:F0} seconds.";
-                } else {
+                }
+                else
+                {
                     reconnectionStatusText.text = "Reconnection timeout expired.";
                     // Disable reconnect button after timeout
-                    if (reconnectButton != null) {
+                    if (reconnectButton != null)
+                    {
                         reconnectButton.interactable = false;
                     }
                 }
@@ -281,54 +326,62 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Called when the connection status changes
     /// </summary>
-    private void OnConnectionStatusChanged(string status) {
+    private void OnConnectionStatusChanged(string status)
+    {
         UpdateConnectionStatus(status);
     }
-    
+
     /// <summary>
     /// Called when a player connects
     /// </summary>
-    private void OnPlayerConnected(PlayerConnectionManager.PlayerInfo player) {
+    private void OnPlayerConnected(PlayerConnectionManager.PlayerInfo player)
+    {
         UpdateStatusPanel();
     }
-    
+
     /// <summary>
     /// Called when a player disconnects
     /// </summary>
-    private void OnPlayerDisconnected(PlayerConnectionManager.PlayerInfo player) {
+    private void OnPlayerDisconnected(PlayerConnectionManager.PlayerInfo player)
+    {
         UpdateStatusPanel();
     }
-    
+
     /// <summary>
     /// Called when a player reconnects
     /// </summary>
-    private void OnPlayerReconnected(PlayerConnectionManager.PlayerInfo player) {
+    private void OnPlayerReconnected(PlayerConnectionManager.PlayerInfo player)
+    {
         UpdateStatusPanel();
     }
 
     /// <summary>
     /// Handles network errors from NetworkErrorHandler
     /// </summary>
-    private void OnNetworkError(NetworkErrorHandler.NetworkErrorType errorType, string message) {
+    private void OnNetworkError(NetworkErrorHandler.NetworkErrorType errorType, string message)
+    {
         // Update UI with error message
         UpdateConnectionStatus($"Error: {message}");
-        
+
         // Handle specific error types
-        switch (errorType) {
+        switch (errorType)
+        {
             case NetworkErrorHandler.NetworkErrorType.ConnectionFailed:
             case NetworkErrorHandler.NetworkErrorType.ConnectionTimeout:
                 // Show retry UI
                 ShowConnectionError(message);
                 break;
-                
+
             case NetworkErrorHandler.NetworkErrorType.Disconnected:
                 // Handle unexpected disconnection
-                if (!intentionalDisconnect && useReconnectionManager && NetworkReconnectionManager.Instance != null) {
+                if (!intentionalDisconnect && useReconnectionManager && NetworkReconnectionManager.Instance != null)
+                {
                     // Start reconnection process if not an intentional disconnect
                     StartCoroutine(ShowReconnectionUI());
                 }
+
                 break;
-                
+
             case NetworkErrorHandler.NetworkErrorType.ReconnectionFailed:
                 // Return to main menu
                 if (networkPanel != null) networkPanel.SetActive(true);
@@ -337,24 +390,28 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                 break;
         }
     }
-    
+
     /// <summary>
     /// Shows the reconnection UI after a short delay
     /// </summary>
-    private IEnumerator ShowReconnectionUI() {
+    private IEnumerator ShowReconnectionUI()
+    {
         // Wait a moment before showing reconnection UI
         yield return new WaitForSeconds(1f);
-        
-        if (reconnectionPanel != null) {
+
+        if (reconnectionPanel != null)
+        {
             reconnectionPanel.SetActive(true);
         }
-        
-        if (statusPanel != null) {
+
+        if (statusPanel != null)
+        {
             statusPanel.SetActive(false);
         }
-        
+
         // Update reconnection status text
-        if (reconnectionStatusText != null && NetworkReconnectionManager.Instance != null) {
+        if (reconnectionStatusText != null && NetworkReconnectionManager.Instance != null)
+        {
             float timeLeft = NetworkReconnectionManager.Instance.GetRemainingReconnectionTime();
             reconnectionStatusText.text = $"Disconnected. You can reconnect for {timeLeft:F0} seconds.";
         }
@@ -363,359 +420,431 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Updates the status panel with current player and game information
     /// </summary>
-    private void UpdateStatusPanel() {
-        if (playerListText == null || gameStatusText == null || NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) 
+    private void UpdateStatusPanel()
+    {
+        if (playerListText == null || gameStatusText == null || NetworkManager.Singleton == null ||
+            !NetworkManager.Singleton.IsConnectedClient)
             return;
 
         // Update player list
         string playerListString = "Players:\n";
         List<PlayerConnectionManager.PlayerInfo> connectedPlayers = playerConnectionManager.GetConnectedPlayers();
         List<PlayerConnectionManager.PlayerInfo> disconnectedPlayers = playerConnectionManager.GetDisconnectedPlayers();
-        
-        foreach (var player in connectedPlayers) {
+
+        foreach (var player in connectedPlayers)
+        {
             playerListString += $"- {player.PlayerName} ({player.AssignedSide}) [Connected]\n";
         }
-        
-        foreach (var player in disconnectedPlayers) {
+
+        foreach (var player in disconnectedPlayers)
+        {
             playerListString += $"- {player.PlayerName} ({player.AssignedSide}) [Disconnected]\n";
         }
-        
+
         playerListText.text = playerListString;
-        
+
         // Update game status
         string gameStatusString = "Game Status:\n";
-        if (gameStarted) {
+        if (gameStarted)
+        {
             gameStatusString += $"Current Turn: {GameManager.Instance.SideToMove}\n";
             gameStatusString += $"Move Count: {GameManager.Instance.LatestHalfMoveIndex}\n";
-            
+
             // Get the latest half-move
-            if (GameManager.Instance.HalfMoveTimeline.TryGetCurrent(out HalfMove latestHalfMove)) {
-                if (latestHalfMove.CausedCheck) {
+            if (GameManager.Instance.HalfMoveTimeline.TryGetCurrent(out HalfMove latestHalfMove))
+            {
+                if (latestHalfMove.CausedCheck)
+                {
                     gameStatusString += "Check!\n";
                 }
-                if (latestHalfMove.CausedCheckmate) {
+
+                if (latestHalfMove.CausedCheckmate)
+                {
                     gameStatusString += "Checkmate! Game Over.\n";
-                } else if (latestHalfMove.CausedStalemate) {
+                }
+                else if (latestHalfMove.CausedStalemate)
+                {
                     gameStatusString += "Stalemate! Game Over.\n";
                 }
             }
 
             // Check if waiting for reconnection
-            if (IsWaitingForReconnection()) {
+            if (IsWaitingForReconnection())
+            {
                 gameStatusString += "Waiting for player to reconnect...\n";
             }
-        } else {
+        }
+        else
+        {
             gameStatusString += "Game not started\n";
         }
-        
+
         gameStatusText.text = gameStatusString;
     }
 
     /// <summary>
     /// Called when a move is executed in the game
     /// </summary>
-    private void OnMoveExecuted() {
+    private void OnMoveExecuted()
+    {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
-        
+
         if (verbose) Debug.Log("Move executed - syncing state");
         BroadcastCurrentGameState();
-        
+
         // Update pieces interactive state for all pieces
         RefreshAllPiecesInteractivity();
-        
+
         // Update the status panel
         UpdateStatusPanel();
     }
-    
+
     /// <summary>
     /// Shows a connection error message
     /// </summary>
-    private void ShowConnectionError(string errorMessage) {
-        if (connectionErrorText != null) {
+    private void ShowConnectionError(string errorMessage)
+    {
+        if (connectionErrorText != null)
+        {
             connectionErrorText.text = errorMessage;
             connectionErrorText.gameObject.SetActive(true);
         }
-        
-        if (retryConnectionButton != null) {
+
+        if (retryConnectionButton != null)
+        {
             retryConnectionButton.gameObject.SetActive(true);
         }
-        
+
         UpdateConnectionStatus($"Error: {errorMessage}");
     }
-    
+
     /// <summary>
     /// Hides the connection error message
     /// </summary>
-    private void HideConnectionError() {
-        if (connectionErrorText != null) {
+    private void HideConnectionError()
+    {
+        if (connectionErrorText != null)
+        {
             connectionErrorText.gameObject.SetActive(false);
         }
-        
-        if (retryConnectionButton != null) {
+
+        if (retryConnectionButton != null)
+        {
             retryConnectionButton.gameObject.SetActive(false);
         }
     }
-    
+
     /// <summary>
     /// Retries the last connection attempt
     /// </summary>
-    public void RetryConnection() {
+    public void RetryConnection()
+    {
         HideConnectionError();
-        
-        if (lastKnownConnectionData.Contains("host")) {
+
+        if (lastKnownConnectionData.Contains("host"))
+        {
             // We were trying to host
             StartHost();
-        } else {
+        }
+        else
+        {
             // We were trying to join
             StartClient();
         }
     }
-    
+
     /// <summary>
     /// Validates a join code before attempting to connect
     /// </summary>
-    private bool ValidateJoinCode(string joinCode) {
+    private bool ValidateJoinCode(string joinCode)
+    {
         // Special case for "chessgame"
-        if (joinCode.ToLower() == "chessgame") {
+        if (joinCode.ToLower() == "chessgame")
+        {
             Debug.Log("Special code 'chessgame' validated internally");
             return true;
         }
-        
+
         // Use NetworkErrorHandler if available
-        if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null) {
+        if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null)
+        {
             return NetworkErrorHandler.Instance.ValidateJoinCode(joinCode);
         }
-        
+
         // Simple validation - make sure it's not empty
-        if (string.IsNullOrEmpty(joinCode)) {
+        if (string.IsNullOrEmpty(joinCode))
+        {
             ShowConnectionError("Join code cannot be empty");
             return false;
         }
-        
+
         // For this implementation, we'll assume join codes are IP:port
-        if (!joinCode.Contains(":")) {
+        if (!joinCode.Contains(":"))
+        {
             ShowConnectionError("Invalid join code format. Expected format: IP:PORT");
             return false;
         }
-        
+
         // Parse the join code to verify format
         string[] parts = joinCode.Split(':');
-        if (parts.Length != 2 || !ushort.TryParse(parts[1], out _)) {
+        if (parts.Length != 2 || !ushort.TryParse(parts[1], out _))
+        {
             ShowConnectionError("Invalid join code format. Port must be a number.");
             return false;
         }
-        
+
         return true;
     }
-    
+
     /// <summary>
     /// Attempts to reconnect to the previous session
     /// </summary>
-    public void AttemptReconnection() {
-        try {
+    public void AttemptReconnection()
+    {
+        try
+        {
             HideConnectionError();
-            
+
             // If using NetworkReconnectionManager, delegate to it
-            if (useReconnectionManager && NetworkReconnectionManager.Instance != null) {
-                if (NetworkReconnectionManager.Instance.AttemptReconnection()) {
+            if (useReconnectionManager && NetworkReconnectionManager.Instance != null)
+            {
+                if (NetworkReconnectionManager.Instance.AttemptReconnection())
+                {
                     attemptingReconnection = true;
-                    
+
                     // Update status
                     UpdateConnectionStatus("Attempting to reconnect...");
-                    
+
                     // Hide reconnection panel
-                    if (reconnectionPanel != null) {
+                    if (reconnectionPanel != null)
+                    {
                         reconnectionPanel.SetActive(false);
                     }
-                    
+
                     return;
                 }
             }
-            
+
             // Fallback to original reconnection logic
-            if (string.IsNullOrEmpty(lastKnownConnectionData) || Time.time - disconnectTime > reconnectionTimeout) {
+            if (string.IsNullOrEmpty(lastKnownConnectionData) || Time.time - disconnectTime > reconnectionTimeout)
+            {
                 ShowConnectionError("Cannot reconnect: timeout expired");
                 return;
             }
-            
+
             attemptingReconnection = true;
-            
+
             // Cancel any ongoing reconnection attempt
-            if (reconnectionTimeoutCoroutine != null) {
+            if (reconnectionTimeoutCoroutine != null)
+            {
                 StopCoroutine(reconnectionTimeoutCoroutine);
                 reconnectionTimeoutCoroutine = null;
             }
-            
+
             // Set up the transport with the last known connection data
             var transport = NetworkManager.Singleton.GetComponent<Unity.Netcode.Transports.UTP.UnityTransport>();
-            if (transport != null && !string.IsNullOrEmpty(lastKnownConnectionData)) {
+            if (transport != null && !string.IsNullOrEmpty(lastKnownConnectionData))
+            {
                 // Format is expected to be "address:port"
                 string[] parts = lastKnownConnectionData.Split(':');
-                if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port)) {
+                if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port))
+                {
                     transport.ConnectionData.Address = parts[0];
                     transport.ConnectionData.Port = port;
                     Debug.Log($"Attempting to reconnect to {parts[0]}:{port}");
-                    
+
                     // Try to reconnect
-                    if (NetworkManager.Singleton.StartClient()) {
+                    if (NetworkManager.Singleton.StartClient())
+                    {
                         Debug.Log("Reconnection attempt started");
                         UpdateConnectionStatus("Attempting to reconnect...");
-                        if (reconnectionPanel != null) {
+                        if (reconnectionPanel != null)
+                        {
                             reconnectionPanel.SetActive(false);
                         }
-                        
+
                         // Start a timeout coroutine to handle failed reconnection
                         reconnectionTimeoutCoroutine = StartCoroutine(ReconnectionTimeoutCoroutine(10f));
-                    } else {
+                    }
+                    else
+                    {
                         Debug.LogError("Failed to start client for reconnection");
                         ShowConnectionError("Reconnection failed");
                         attemptingReconnection = false;
                     }
-                } else {
+                }
+                else
+                {
                     Debug.LogError("Invalid connection data format");
                     ShowConnectionError("Reconnection failed - invalid data");
                     attemptingReconnection = false;
                 }
-            } else {
+            }
+            else
+            {
                 Debug.LogError("Transport not found or invalid connection data");
                 ShowConnectionError("Reconnection failed - transport error");
                 attemptingReconnection = false;
             }
-        } catch (Exception ex) {
+        }
+        catch (Exception ex)
+        {
             ShowConnectionError($"Reconnection error: {ex.Message}");
             Debug.LogError($"Reconnection error: {ex}");
             attemptingReconnection = false;
         }
     }
-    
+
     /// <summary>
     /// Handles reconnection timeout
     /// </summary>
-    private IEnumerator ReconnectionTimeoutCoroutine(float timeoutSeconds) {
+    private IEnumerator ReconnectionTimeoutCoroutine(float timeoutSeconds)
+    {
         float reconnectionStartTime = Time.time;
         bool reconnected = false;
-        
-        while (!reconnected && Time.time - reconnectionStartTime < timeoutSeconds) {
+
+        while (!reconnected && Time.time - reconnectionStartTime < timeoutSeconds)
+        {
             reconnected = NetworkManager.Singleton.IsConnectedClient;
             yield return new WaitForSeconds(0.5f);
         }
-        
+
         reconnectionTimeoutCoroutine = null;
-        
-        if (!reconnected) {
+
+        if (!reconnected)
+        {
             UpdateConnectionStatus("Reconnection timed out");
             ShowConnectionError("Reconnection timed out");
             attemptingReconnection = false;
-            
+
             // Show reconnection panel again
-            if (reconnectionPanel != null) {
+            if (reconnectionPanel != null)
+            {
                 reconnectionPanel.SetActive(true);
             }
         }
     }
-    
+
     /// <summary>
     /// Handles connection timeout when a client fails to connect within a certain time
     /// </summary>
-    private IEnumerator ConnectionTimeoutCoroutine() {
+    private IEnumerator ConnectionTimeoutCoroutine()
+    {
         float connectionStartTime = Time.time;
         bool connected = false;
-        
-        while (!connected && Time.time - connectionStartTime < connectionTimeout) {
+
+        while (!connected && Time.time - connectionStartTime < connectionTimeout)
+        {
             connected = NetworkManager.Singleton.IsConnectedClient;
             yield return new WaitForSeconds(0.5f);
         }
-        
+
         connectionTimeoutCoroutine = null;
-        
-        if (!connected) {
+
+        if (!connected)
+        {
             UpdateConnectionStatus("Connection timed out");
             ShowConnectionError("Connection timed out. The host may not be available.");
             Disconnect();
         }
     }
-    
+
     /// <summary>
     /// Callback when reconnection fails
     /// </summary>
-    public void OnReconnectionFailed() {
+    public void OnReconnectionFailed()
+    {
         // Show reconnection failed UI or return to main menu
         if (networkPanel != null) networkPanel.SetActive(true);
         if (statusPanel != null) statusPanel.SetActive(false);
         if (reconnectionPanel != null) reconnectionPanel.SetActive(false);
-        
+
         UpdateConnectionStatus("Reconnection failed");
     }
-    
+
     /// <summary>
     /// Starts a network session as the host.
     /// </summary>
-    public void StartHost() {
-        try {
+    public void StartHost()
+    {
+        try
+        {
             // Reset intentional disconnect flag
             intentionalDisconnect = false;
-            
+
             // Cancel any ongoing connection attempts
-            if (connectionTimeoutCoroutine != null) {
+            if (connectionTimeoutCoroutine != null)
+            {
                 StopCoroutine(connectionTimeoutCoroutine);
                 connectionTimeoutCoroutine = null;
             }
-            
+
             HideConnectionError();
             DisableAllNetworkObjectsInScene();
-            
+
             // Use SessionManager if available
-            if (useSessionManager && SessionManager.Instance != null) {
+            if (useSessionManager && SessionManager.Instance != null)
+            {
                 string playerName = playerNameInputField != null ? playerNameInputField.text : "Host";
                 SessionManager.Instance.CreateSession(playerName);
             }
-            
+
             // Save that we are attempting to host (for retry logic)
             lastKnownConnectionData = "host";
-            
+
             // Save the player name
-            if (playerNameInputField != null && !string.IsNullOrEmpty(playerNameInputField.text)) {
+            if (playerNameInputField != null && !string.IsNullOrEmpty(playerNameInputField.text))
+            {
                 playerConnectionManager.SetPlayerName(playerNameInputField.text);
             }
-            
+
             // Save connection data for potential reconnection
             var transport = NetworkManager.Singleton.GetComponent<Unity.Netcode.Transports.UTP.UnityTransport>();
-            if (transport != null) {
+            if (transport != null)
+            {
                 lastKnownConnectionData = $"{transport.ConnectionData.Address}:{transport.ConnectionData.Port}";
-                
+
                 // Store connection data in player connection manager
-                playerConnectionManager.StoreConnectionData(NetworkManager.Singleton.LocalClientId, lastKnownConnectionData);
+                playerConnectionManager.StoreConnectionData(NetworkManager.Singleton.LocalClientId,
+                    lastKnownConnectionData);
             }
-            
-            if (NetworkManager.Singleton.StartHost()) {
+
+            if (NetworkManager.Singleton.StartHost())
+            {
                 localPlayerSide = Side.White;
                 wasConnected = true;
-                
+
                 // Hide the network panel after successful connection
                 if (networkPanel != null) networkPanel.SetActive(false);
                 if (statusPanel != null) statusPanel.SetActive(true);
                 if (disconnectButton != null) disconnectButton.interactable = true;
                 if (hostButton != null) hostButton.interactable = false;
                 if (clientButton != null) clientButton.interactable = false;
-                
+
                 UpdateConnectionStatus("Hosting (White)");
-                
+
                 // Start a new game
                 GameManager.Instance.StartNewGame();
                 gameStarted = true;
-                
+
                 // Initial sync
                 lastSyncedState = GameManager.Instance.SerializeGame();
                 lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex;
-                
+
                 // Make sure only White pieces are enabled for the host
                 RefreshAllPiecesInteractivity();
-                
-                if (verbose) Debug.Log("[HOST] Game started with initial state: " + lastSyncedState.Substring(0, Mathf.Min(30, lastSyncedState.Length)) + "...");
-            } else {
+
+                if (verbose)
+                    Debug.Log("[HOST] Game started with initial state: " +
+                              lastSyncedState.Substring(0, Mathf.Min(30, lastSyncedState.Length)) + "...");
+            }
+            else
+            {
                 ShowConnectionError("Failed to start host: Network error");
             }
-        } catch (Exception ex) {
+        }
+        catch (Exception ex)
+        {
             ShowConnectionError($"Host error: {ex.Message}");
             Debug.LogError($"Host start error: {ex}");
         }
@@ -724,92 +853,114 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Joins a game using a join code, integrating with SessionManager
     /// </summary>
-    public bool JoinGame(string joinCode) {
-        try {
+    public bool JoinGame(string joinCode)
+    {
+        try
+        {
             // Reset intentional disconnect flag
             intentionalDisconnect = false;
-            
+
             // Special handling for "chessgame" code
-            if (joinCode.ToLower() == "chessgame") {
+            if (joinCode.ToLower() == "chessgame")
+            {
                 joinCode = "127.0.0.1:7777";
             }
-            
+
             // Use NetworkErrorHandler to validate join code
-            if (!ValidateJoinCode(joinCode)) {
+            if (!ValidateJoinCode(joinCode))
+            {
                 return false;
             }
-            
+
             // Use SessionManager to handle joining
-            if (useSessionManager && SessionManager.Instance != null) {
+            if (useSessionManager && SessionManager.Instance != null)
+            {
                 string playerName = "Player";
-                if (playerNameInputField != null) {
+                if (playerNameInputField != null)
+                {
                     playerName = playerNameInputField.text;
                 }
-                
-                if (!SessionManager.Instance.JoinSession(joinCode, playerName)) {
+
+                if (!SessionManager.Instance.JoinSession(joinCode, playerName))
+                {
                     UpdateConnectionStatus("Failed to join session");
                     return false;
                 }
             }
-            
+
             // Set up transport directly if not using SessionManager
-            if (!useSessionManager || SessionManager.Instance == null) {
+            if (!useSessionManager || SessionManager.Instance == null)
+            {
                 // Parse join code (IP:port format)
                 string[] parts = joinCode.Split(':');
-                if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port)) {
-                    var transport = NetworkManager.Singleton.GetComponent<Unity.Netcode.Transports.UTP.UnityTransport>();
-                    if (transport != null) {
+                if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port))
+                {
+                    var transport = NetworkManager.Singleton
+                        .GetComponent<Unity.Netcode.Transports.UTP.UnityTransport>();
+                    if (transport != null)
+                    {
                         transport.ConnectionData.Address = parts[0];
                         transport.ConnectionData.Port = port;
                         lastKnownConnectionData = joinCode;
-                    } else {
+                    }
+                    else
+                    {
                         UpdateConnectionStatus("Transport component not found");
                         return false;
                     }
-                } else {
+                }
+                else
+                {
                     UpdateConnectionStatus("Invalid join code format");
                     return false;
                 }
             }
-            
+
             // Start monitoring connection attempt
-            if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null) {
+            if (useNetworkErrorHandler && NetworkErrorHandler.Instance != null)
+            {
                 NetworkErrorHandler.Instance.MonitorConnectionAttempt();
             }
-            
+
             // Start client
             DisableAllNetworkObjectsInScene();
-            
+
             // Save the player name
-            if (playerNameInputField != null && !string.IsNullOrEmpty(playerNameInputField.text)) {
+            if (playerNameInputField != null && !string.IsNullOrEmpty(playerNameInputField.text))
+            {
                 playerConnectionManager.SetPlayerName(playerNameInputField.text);
             }
-            
-            if (NetworkManager.Singleton.StartClient()) {
+
+            if (NetworkManager.Singleton.StartClient())
+            {
                 localPlayerSide = Side.Black;
                 wasConnected = true;
-                
+
                 // Hide the network panel after attempting connection
                 if (networkPanel != null) networkPanel.SetActive(false);
                 if (statusPanel != null) statusPanel.SetActive(true);
                 if (disconnectButton != null) disconnectButton.interactable = true;
                 if (hostButton != null) hostButton.interactable = false;
                 if (clientButton != null) clientButton.interactable = false;
-                
+
                 UpdateConnectionStatus("Connecting...");
                 gameStarted = true;
-                
+
                 // Start a connection timeout coroutine
                 connectionTimeoutCoroutine = StartCoroutine(ConnectionTimeoutCoroutine());
-                
+
                 if (verbose) Debug.Log("[CLIENT] Attempting to connect to host");
-                
+
                 return true;
-            } else {
+            }
+            else
+            {
                 UpdateConnectionStatus("Failed to start client");
                 return false;
             }
-        } catch (Exception ex) {
+        }
+        catch (Exception ex)
+        {
             Debug.LogError($"Error joining game: {ex.Message}");
             UpdateConnectionStatus($"Error: {ex.Message}");
             return false;
@@ -825,33 +976,33 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         {
             // Reset intentional disconnect flag
             intentionalDisconnect = false;
-            
+
             // Cancel any ongoing connection attempts
             if (connectionTimeoutCoroutine != null)
             {
                 StopCoroutine(connectionTimeoutCoroutine);
                 connectionTimeoutCoroutine = null;
             }
-            
+
             HideConnectionError();
-            
+
             string joinCode = joinCodeInputField != null ? joinCodeInputField.text : "";
             Debug.Log($"Join code entered: '{joinCode}'");
-            
+
             // Special handling for "chessgame" code
             if (joinCode.ToLower() == "chessgame")
             {
                 Debug.Log("Special code 'chessgame' detected, setting to localhost:7777");
                 joinCode = "127.0.0.1:7777";
             }
-            
+
             // Validate the join code
             if (!ValidateJoinCode(joinCode))
             {
                 Debug.LogError("Join code validation failed");
                 return; // Validation failed
             }
-            
+
             // Setup transport with the join code
             string[] parts = joinCode.Split(':');
             if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port))
@@ -862,7 +1013,7 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                     transport.ConnectionData.Address = parts[0];
                     transport.ConnectionData.Port = port;
                     lastKnownConnectionData = joinCode;
-                    
+
                     // Store connection data in player connection manager
                     playerConnectionManager.StoreConnectionData(0, joinCode); // Client ID will be assigned later
                 }
@@ -877,42 +1028,46 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                 ShowConnectionError("Invalid join code format");
                 return;
             }
-            
+
             DisableAllNetworkObjectsInScene();
-            
+
             // Save the player name
             if (playerNameInputField != null && !string.IsNullOrEmpty(playerNameInputField.text))
             {
                 playerConnectionManager.SetPlayerName(playerNameInputField.text);
             }
-            
+
             if (NetworkManager.Singleton.StartClient())
             {
                 // Make sure this is set correctly for the client
                 localPlayerSide = Side.Black;
                 Debug.Log($"[CLIENT] Started client, assigned to {localPlayerSide} side");
-                
+
                 localPlayerSide = Side.Black;
                 wasConnected = true;
-                
+
                 // Hide the network panel after attempting connection
                 if (networkPanel != null) networkPanel.SetActive(false);
                 if (statusPanel != null) statusPanel.SetActive(true);
                 if (disconnectButton != null) disconnectButton.interactable = true;
                 if (hostButton != null) hostButton.interactable = false;
                 if (clientButton != null) clientButton.interactable = false;
-                
+
                 UpdateConnectionStatus("Connecting...");
                 gameStarted = true;
-                
+
                 // Start a connection timeout coroutine
                 connectionTimeoutCoroutine = StartCoroutine(ConnectionTimeoutCoroutine());
-                
+
                 if (verbose) Debug.Log("[CLIENT] Attempting to connect to host");
-            } else {
+            }
+            else
+            {
                 ShowConnectionError("Failed to start client: Network error");
             }
-        } catch (Exception ex) {
+        }
+        catch (Exception ex)
+        {
             ShowConnectionError($"Connection error: {ex.Message}");
             Debug.LogError($"Client start error: {ex}");
         }
@@ -921,15 +1076,18 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Disables all NetworkObject components in the scene to prevent duplicate ID issues
     /// </summary>
-    private void DisableAllNetworkObjectsInScene() {
+    private void DisableAllNetworkObjectsInScene()
+    {
         // Find all NetworkObjects in the scene
         NetworkObject[] networkObjects = FindObjectsOfType<NetworkObject>();
-        foreach (NetworkObject netObj in networkObjects) {
+        foreach (NetworkObject netObj in networkObjects)
+        {
             // Skip the NetworkManager's own NetworkObject
             if (netObj.GetComponent<NetworkManager>() != null) continue;
-            
+
             // Disable the NetworkObject component
-            if (netObj.enabled) {
+            if (netObj.enabled)
+            {
                 netObj.enabled = false;
                 if (verbose) Debug.Log($"Disabled NetworkObject on {netObj.name}");
             }
@@ -939,46 +1097,53 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Disconnects from the current network session.
     /// </summary>
-    public void Disconnect() {
+    public void Disconnect()
+    {
         // Set intentional disconnect flag
         intentionalDisconnect = true;
         gameStarted = false;
-        
+
         // Clean up reconnection tracking
         wasConnected = false;
         disconnectTime = 0f;
         attemptingReconnection = false;
-        
+
         // Cancel any reconnection process
-        if (useReconnectionManager && NetworkReconnectionManager.Instance != null) {
+        if (useReconnectionManager && NetworkReconnectionManager.Instance != null)
+        {
             NetworkReconnectionManager.Instance.CancelReconnection();
         }
-        
+
         // Clean up session data
-        if (useSessionManager && SessionManager.Instance != null) {
+        if (useSessionManager && SessionManager.Instance != null)
+        {
             SessionManager.Instance.LeaveSession();
         }
-        
+
         // Cancel any ongoing connection attempts
-        if (connectionTimeoutCoroutine != null) {
+        if (connectionTimeoutCoroutine != null)
+        {
             StopCoroutine(connectionTimeoutCoroutine);
             connectionTimeoutCoroutine = null;
         }
-        
-        if (reconnectionTimeoutCoroutine != null) {
+
+        if (reconnectionTimeoutCoroutine != null)
+        {
             StopCoroutine(reconnectionTimeoutCoroutine);
             reconnectionTimeoutCoroutine = null;
         }
-        
-        if (NetworkManager.Singleton != null) {
+
+        if (NetworkManager.Singleton != null)
+        {
             NetworkManager.Singleton.Shutdown();
         }
-        
+
         // Clean up player connection data
-        if (playerConnectionManager != null) {
+        if (playerConnectionManager != null)
+        {
             playerConnectionManager.ClearAllPlayerData();
         }
-        
+
         // Update UI
         HideConnectionError();
         if (networkPanel != null) networkPanel.SetActive(true);
@@ -987,61 +1152,73 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
         if (disconnectButton != null) disconnectButton.interactable = false;
         if (hostButton != null) hostButton.interactable = true;
         if (clientButton != null) clientButton.interactable = true;
-        
+
         UpdateConnectionStatus("Disconnected");
     }
 
     /// <summary>
     /// Callback when a client connects to the network.
     /// </summary>
-    private void OnClientConnected(ulong clientId) {
-        if (clientId == NetworkManager.Singleton.LocalClientId) {
+    private void OnClientConnected(ulong clientId)
+    {
+        if (clientId == NetworkManager.Singleton.LocalClientId)
+        {
             string roleText = NetworkManager.Singleton.IsHost ? "Hosting (White)" : "Connected as Client (Black)";
             UpdateConnectionStatus(roleText);
-            
+
             // Reset reconnection tracking
             wasConnected = true;
             disconnectTime = 0f;
             attemptingReconnection = false;
-            
+
             // Cancel timeouts
-            if (connectionTimeoutCoroutine != null) {
+            if (connectionTimeoutCoroutine != null)
+            {
                 StopCoroutine(connectionTimeoutCoroutine);
                 connectionTimeoutCoroutine = null;
             }
-            
-            if (reconnectionTimeoutCoroutine != null) {
+
+            if (reconnectionTimeoutCoroutine != null)
+            {
                 StopCoroutine(reconnectionTimeoutCoroutine);
                 reconnectionTimeoutCoroutine = null;
             }
-            
+
             // Update UI
             HideConnectionError();
             if (statusPanel != null) statusPanel.SetActive(true);
             if (reconnectionPanel != null) reconnectionPanel.SetActive(false);
-            
+
             // If we're the host, initialize a new game and sync to clients
-            if (NetworkManager.Singleton.IsHost) {
+            if (NetworkManager.Singleton.IsHost)
+            {
                 // Host should only enable White pieces
                 RefreshAllPiecesInteractivity();
                 if (verbose) Debug.Log("[HOST] Client connected, sending game state");
-                
+
                 // Send initial game state to the newly connected client
                 SyncGameStateClientRpc(GameManager.Instance.SerializeGame());
-            } else {
+            }
+            else
+            {
                 // If we're the client, request the current game state from the host
                 RequestSyncGameStateServerRpc();
             }
-            
+
             // If using NetworkReconnectionManager, notify of successful reconnection
-            if (attemptingReconnection && useReconnectionManager && NetworkReconnectionManager.Instance != null) {
+            if (attemptingReconnection && useReconnectionManager && NetworkReconnectionManager.Instance != null)
+            {
                 NetworkReconnectionManager.Instance.NotifyReconnectionSuccess();
             }
-        } else {
+        }
+        else
+        {
             // A remote client connected - check if it's a reconnection
             bool isReconnection = false;
-            foreach (var player in playerConnectionManager.GetDisconnectedPlayers()) {
-                if (Time.time - player.DisconnectTime <= reconnectionTimeout) {
+            foreach (var player in playerConnectionManager.GetDisconnectedPlayers())
+            {
+                if (Time.time - player.DisconnectTime <= reconnectionTimeout)
+                {
                     // This appears to be a reconnection
                     isReconnection = true;
                     playerConnectionManager.HandlePlayerReconnection(clientId);
@@ -1049,19 +1226,23 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                     break;
                 }
             }
-            
-            if (!isReconnection) {
+
+            if (!isReconnection)
+            {
                 // New player connected
                 UpdateConnectionStatus("Player Connected");
             }
-            
+
             UpdateStatusPanel();
-            
+
             // If we're the host, sync the game state to the new client
-            if (NetworkManager.Singleton.IsHost) {
+            if (NetworkManager.Singleton.IsHost)
+            {
                 string serializedGame = GameManager.Instance.SerializeGame();
                 SyncGameStateClientRpc(serializedGame);
-                if (verbose) Debug.Log("[HOST] Sent initial game state to new client: " + serializedGame.Substring(0, Mathf.Min(30, serializedGame.Length)) + "...");
+                if (verbose)
+                    Debug.Log("[HOST] Sent initial game state to new client: " +
+                              serializedGame.Substring(0, Mathf.Min(30, serializedGame.Length)) + "...");
             }
         }
     }
@@ -1069,16 +1250,31 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Updates all piece interactivity based on current turn and network state
     /// </summary>
-    public void RefreshAllPiecesInteractivity() {
+    public void RefreshAllPiecesInteractivity()
+    {
         // Find all ChessNetworkPieceController components in the scene
         ChessNetworkPieceController[] controllers = FindObjectsOfType<ChessNetworkPieceController>();
-    
+
+        // Get the current turn and local player's side for debug output
+        string currentTurn = "Unknown";
+        ImprovedTurnSystem turnSystem = FindObjectOfType<ImprovedTurnSystem>();
+        if (turnSystem != null)
+        {
+            currentTurn = turnSystem.currentTurn.Value == 0 ? "White" : "Black";
+        }
+        else
+        {
+            currentTurn = GameManager.Instance.SideToMove.ToString();
+        }
+
         Debug.Log($"[ChessNetworkManager] RefreshAllPiecesInteractivity: Found {controllers.Length} pieces. " +
-                  $"Current turn: {GameManager.Instance.SideToMove}, Local player: {localPlayerSide}");
-    
+                  $"Current turn: {currentTurn}, Local player: {localPlayerSide}");
+
         // Force update on each controller
-        foreach (ChessNetworkPieceController controller in controllers) {
-            if (controller != null) {
+        foreach (ChessNetworkPieceController controller in controllers)
+        {
+            if (controller != null)
+            {
                 controller.ForceUpdateInteractivity();
             }
         }
@@ -1087,15 +1283,18 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Callback when a client disconnects from the network.
     /// </summary>
-    private void OnClientDisconnected(ulong clientId) {
-        if (clientId == NetworkManager.Singleton.LocalClientId) {
+    private void OnClientDisconnected(ulong clientId)
+    {
+        if (clientId == NetworkManager.Singleton.LocalClientId)
+        {
             // We disconnected
-            if (NetworkManager.Singleton.IsHost || !allowReconnection || intentionalDisconnect) {
+            if (NetworkManager.Singleton.IsHost || !allowReconnection || intentionalDisconnect)
+            {
                 // If we're the host or reconnection is disabled, go back to main menu
                 UpdateConnectionStatus("Disconnected");
                 gameStarted = false;
                 wasConnected = false;
-                
+
                 // Show network panel again
                 if (networkPanel != null) networkPanel.SetActive(true);
                 if (statusPanel != null) statusPanel.SetActive(false);
@@ -1103,35 +1302,46 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
                 if (disconnectButton != null) disconnectButton.interactable = false;
                 if (hostButton != null) hostButton.interactable = true;
                 if (clientButton != null) clientButton.interactable = true;
-            } else {
+            }
+            else
+            {
                 // If we're a client and reconnection is allowed, show reconnection UI
                 UpdateConnectionStatus("Disconnected - Can reconnect");
                 disconnectTime = Time.time;
-                
+
                 // If using NetworkReconnectionManager, let it handle reconnection
-                if (useReconnectionManager && NetworkReconnectionManager.Instance != null) {
+                if (useReconnectionManager && NetworkReconnectionManager.Instance != null)
+                {
                     // NetworkReconnectionManager will handle showing reconnection UI
-                } else {
+                }
+                else
+                {
                     // Show reconnection panel
-                    if (reconnectionPanel != null) {
+                    if (reconnectionPanel != null)
+                    {
                         reconnectionPanel.SetActive(true);
                     }
-                    
+
                     // Hide status panel
-                    if (statusPanel != null) {
+                    if (statusPanel != null)
+                    {
                         statusPanel.SetActive(false);
                     }
                 }
             }
-        } else {
+        }
+        else
+        {
             // Remote client disconnected - handle gracefully with PlayerConnectionManager
             UpdateConnectionStatus("Player Disconnected");
             UpdateStatusPanel();
-            
+
             // If we're the host, notify other clients about player disconnection
-            if (NetworkManager.Singleton.IsHost) {
+            if (NetworkManager.Singleton.IsHost)
+            {
                 var player = playerConnectionManager.GetPlayerInfo(clientId);
-                if (player != null) {
+                if (player != null)
+                {
                     int sideAsInt = player.AssignedSide == Side.White ? 0 : 1;
                     UpdatePlayerConnectionStatusClientRpc(clientId, false, player.PlayerName, sideAsInt);
                 }
@@ -1142,21 +1352,29 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Updates the connection status text in the UI.
     /// </summary>
-    private void UpdateConnectionStatus(string status) {
-        if (connectionStatusText != null) {
+    private void UpdateConnectionStatus(string status)
+    {
+        if (connectionStatusText != null)
+        {
             connectionStatusText.text = $"Status: {status}";
-            
+
             // Change color based on the status type
-            if (status.StartsWith("Error")) {
+            if (status.StartsWith("Error"))
+            {
                 connectionStatusText.color = Color.red;
-            } else if (status.Contains("Connected") || status.Contains("Hosting")) {
+            }
+            else if (status.Contains("Connected") || status.Contains("Hosting"))
+            {
                 connectionStatusText.color = Color.green;
-            } else {
+            }
+            else
+            {
                 connectionStatusText.color = Color.white;
             }
         }
+
         Debug.Log($"Network Status: {status}");
-        
+
         // Notify observers of the status change
         ConnectionStatusChangedEvent?.Invoke(status);
     }
@@ -1164,61 +1382,77 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// <summary>
     /// Gets the side of the local player (White or Black).
     /// </summary>
-    public Side GetLocalPlayerSide() {
+    public Side GetLocalPlayerSide()
+    {
         return localPlayerSide;
     }
-    
+
     /// <summary>
     /// Checks if the game is in a waiting state (e.g., waiting for a player to reconnect)
     /// </summary>
-    public bool IsWaitingForReconnection() {
+    public bool IsWaitingForReconnection()
+    {
         if (!allowReconnection || NetworkManager.Singleton == null || !NetworkManager.Singleton.IsHost) return false;
-        
+
         // Check if any players are disconnected but still within their reconnection window
         List<PlayerConnectionManager.PlayerInfo> disconnectedPlayers = playerConnectionManager.GetDisconnectedPlayers();
         return disconnectedPlayers.Count > 0;
     }
-    
+
     /// <summary>
     /// Gets the list of players who are disconnected but can reconnect
     /// </summary>
-    public List<PlayerConnectionManager.PlayerInfo> GetReconnectablePlayers() {
+    public List<PlayerConnectionManager.PlayerInfo> GetReconnectablePlayers()
+    {
         return playerConnectionManager.GetDisconnectedPlayers();
     }
 
     /// <summary>
     /// Checks if the current player can move the specified piece.
     /// </summary>
-    public bool CanMoveCurrentPiece(Side pieceSide) {
+    public bool CanMoveCurrentPiece(Side pieceSide)
+    {
         // First, ensure we're in a networked game
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient)
+        {
             return true; // In single player, always allow moves
         }
 
-        // Get current turn
-        Side currentTurn = GameManager.Instance.SideToMove;
-    
-        // Get local player's side
-        Side localPlayerSide = GetLocalPlayerSide();
-    
-        // Debug output to see what's happening
-        if (verbose) Debug.Log($"CanMoveCurrentPiece check - Local player: {localPlayerSide}, Piece: {pieceSide}, Current turn: {currentTurn}");
-    
-        // For clients, enforce additional checking:
-        // 1. The piece must belong to the local player
-        // 2. It must be the local player's turn
-    
-        // Check 1: Is it this player's piece?
-        bool isPlayersPiece = pieceSide == localPlayerSide;
-    
-        // Check 2: Is it this player's turn?
-        bool isPlayersTurn = currentTurn == localPlayerSide;
-    
-        // More verbose debugging
-        if (verbose) Debug.Log($"Move check details - Is player's piece: {isPlayersPiece}, Is player's turn: {isPlayersTurn}");
-    
-        // Both conditions must be true
-        return isPlayersPiece && isPlayersTurn;
+        // Check if we're using the improved turn system
+        ImprovedTurnSystem turnSystem = FindObjectOfType<ImprovedTurnSystem>();
+        if (turnSystem != null)
+        {
+            // Get local player's side
+            Side localPlayerSide = GetLocalPlayerSide();
+
+            // Check if this is the player's piece
+            bool isPlayersPiece = pieceSide == localPlayerSide;
+
+            // Check if it's the player's turn using turn system
+            bool isPlayersTurn = turnSystem.CanPlayerMove(localPlayerSide);
+
+            if (verbose)
+                Debug.Log($"[ChessNetworkManager] Can move piece? IsPlayersPiece={isPlayersPiece}, " +
+                          $"IsPlayersTurn={isPlayersTurn}, PieceSide={pieceSide}, LocalSide={localPlayerSide}");
+
+            // Both conditions must be true
+            return isPlayersPiece && isPlayersTurn;
+        }
+        else
+        {
+            // Fallback to original logic if improved turn system not found
+            Side currentTurn = GameManager.Instance.SideToMove;
+            Side localPlayerSide = GetLocalPlayerSide();
+
+            bool isPlayersPiece = pieceSide == localPlayerSide;
+            bool isPlayersTurn = currentTurn == localPlayerSide;
+
+            if (verbose)
+                Debug.Log($"[ChessNetworkManager] Can move piece? (Legacy) IsPlayersPiece={isPlayersPiece}, " +
+                          $"IsPlayersTurn={isPlayersTurn}, PieceSide={pieceSide}, LocalSide={localPlayerSide}");
+
+            return isPlayersPiece && isPlayersTurn;
+        }
     }
 
     /// <summary>
@@ -1226,23 +1460,25 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Called by client when they make a move.
     /// </summary>
     [ServerRpc(RequireOwnership = false)]
-    public void NotifyMoveServerRpc(string serializedGameState) {
-        if (NetworkManager.Singleton.IsServer || NetworkManager.Singleton.IsHost) {
+    public void NotifyMoveServerRpc(string serializedGameState)
+    {
+        if (NetworkManager.Singleton.IsServer || NetworkManager.Singleton.IsHost)
+        {
             Debug.Log("[SERVER] Received move from client");
-    
+
             // Important: Apply the client's move to the server's game state
             GameManager.Instance.LoadGame(serializedGameState);
-    
+
             // Then broadcast the updated state to all clients (including the sender)
             string updatedState = GameManager.Instance.SerializeGame();
             SyncGameStateClientRpc(updatedState);
-    
+
             // Update last synced state
             lastSyncedState = updatedState;
             lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex;
         }
     }
-    
+
     /// <summary>
     /// Directly broadcasts the current game state to all clients.
     /// Called after a player makes a move.
@@ -1251,138 +1487,181 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager> {
     /// Directly broadcasts the current game state to all clients.
     /// Called after a player makes a move.
     /// </summary>
-    public void BroadcastCurrentGameState() {
+    public void BroadcastCurrentGameState()
+    {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsConnectedClient) return;
 
-        // Get current game state as serialized string (FEN format)
+        // Get current game state
         string serializedGame = GameManager.Instance.SerializeGame();
 
-        if (NetworkManager.Singleton.IsHost) {
-            // Host simply sends the current state to all clients
+        if (NetworkManager.Singleton.IsHost)
+        {
+            // Host sends the current state to all clients
             lastSyncedState = serializedGame;
             lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex;
             SyncGameStateClientRpc(serializedGame);
+
+            // Ensure turn is synchronized with the game state
+            ImprovedTurnSystem turnSystem = FindObjectOfType<ImprovedTurnSystem>();
+            if (turnSystem != null)
+            {
+                turnSystem.SyncWithGameState();
+            }
+
             Debug.Log("[HOST] Broadcasting game state after move");
-        } else {
-            // Client sends its state to the server for synchronization
-            Debug.Log("[CLIENT] Sending game state to server for synchronization");
-            SyncGameStateServerRpc(serializedGame);
         }
+        else
+        {
+            // Client sends its state to the server
+            Debug.Log("[CLIENT] Sending game state to server");
+            SyncGameStateServerRpc(serializedGame);
+
+            // Request turn change if needed
+            ImprovedTurnSystem turnSystem = FindObjectOfType<ImprovedTurnSystem>();
+            if (turnSystem != null && localPlayerSide == Side.Black)
+            {
+                // After Black moves, request change to White's turn
+                turnSystem.RequestTurnChangeServerRpc(1, 0);
+            }
+        }
+
+        // Always refresh piece interactivity after state update
+        RefreshAllPiecesInteractivity();
     }
-    
+
     [ServerRpc(RequireOwnership = false)]
-    public void SyncGameStateServerRpc(string serializedGameState) {
+    public void SyncGameStateServerRpc(string serializedGameState)
+    {
         // Use NetworkManager.Singleton.IsServer instead of IsServer
         if (!NetworkManager.Singleton.IsServer && !NetworkManager.Singleton.IsHost) return;
-    
+
         Debug.Log("[SERVER] Received game state from client");
 
         // Apply the client's game state to the server
         GameManager.Instance.LoadGame(serializedGameState);
-    
+
         // Update tracking variables
         lastSyncedState = serializedGameState;
         lastSyncedMoveCount = GameManager.Instance.LatestHalfMoveIndex;
-    
+
         // Broadcast the updated state to all clients (including the sender for confirmation)
         SyncGameStateClientRpc(serializedGameState);
-    
+
         // Refresh piece interactivity on the server
         RefreshAllPiecesInteractivity();
     }
 
     // Fix the errors in SyncGameStateClientRpc method
     [ClientRpc]
-    public void SyncGameStateClientRpc(string serializedGameState) {
+    public void SyncGameStateClientRpc(string serializedGameState)
+    {
         // Process on clients (but not on the host, who already has this state)
-        if (!NetworkManager.Singleton.IsServer && !NetworkManager.Singleton.IsHost) {
+        if (!NetworkManager.Singleton.IsServer && !NetworkManager.Singleton.IsHost)
+        {
             Debug.Log("[CLIENT] Received game state from server");
-        
+
             // Apply the synchronized state
             GameManager.Instance.LoadGame(serializedGameState);
-        
+
             // Refresh piece interactivity
             RefreshAllPiecesInteractivity();
         }
     }
-   
+
     /// <summary>
     /// Updates a client about another player's connection status
     /// </summary>
     [ClientRpc]
-    public void UpdatePlayerConnectionStatusClientRpc(ulong clientId, bool isConnected, string playerName, int playerSide) {
-        if (!NetworkManager.Singleton.IsHost) {
+    public void UpdatePlayerConnectionStatusClientRpc(ulong clientId, bool isConnected, string playerName,
+        int playerSide)
+    {
+        if (!NetworkManager.Singleton.IsHost)
+        {
             if (verbose) Debug.Log($"Player {playerName} is now {(isConnected ? "connected" : "disconnected")}");
-           
+
             // Update UI or game state based on the other player's connection status
             Side side = playerSide == 0 ? Side.White : Side.Black;
-           
+
             // If playing against a disconnected player, we may want to pause the game or show a waiting message
-            if (!isConnected) {
+            if (!isConnected)
+            {
                 // Example: Show a message that opponent disconnected
                 UpdateConnectionStatus($"Opponent {playerName} disconnected. Waiting for reconnection...");
-            } else if (isConnected) {
+            }
+            else if (isConnected)
+            {
                 // Hide the disconnection message
                 UpdateConnectionStatus("Opponent reconnected");
             }
         }
     }
-   
+
     /// <summary>
     /// Backwards compatibility method for old code that used BroadcastMoveClientRpc
     /// </summary>
     [ClientRpc]
-    public void BroadcastMoveClientRpc(string serializedMove) {
-        if (!NetworkManager.Singleton.IsHost) {
+    public void BroadcastMoveClientRpc(string serializedMove)
+    {
+        if (!NetworkManager.Singleton.IsHost)
+        {
             // This is the old method, redirect to the new approach
             GameManager.Instance.LoadGame(serializedMove);
             RefreshAllPiecesInteractivity();
         }
     }
-   
+
     /// <summary>
     /// Requests the host to send the current game state (for reconnection)
     /// </summary>
     [ServerRpc(RequireOwnership = false)]
-    public void RequestSyncGameStateServerRpc() {
-        if (NetworkManager.Singleton.IsHost) {
+    public void RequestSyncGameStateServerRpc()
+    {
+        if (NetworkManager.Singleton.IsHost)
+        {
             if (verbose) Debug.Log("[HOST] Client requested game state sync");
-           
+
             // Send the current game state to all clients
             string serializedGame = GameManager.Instance.SerializeGame();
             SyncGameStateClientRpc(serializedGame);
         }
     }
-   
+
     /// <summary>
     /// Sets the player name for the session
     /// </summary>
-    public void SetPlayerName(string name) {
-        if (playerConnectionManager != null) {
+    public void SetPlayerName(string name)
+    {
+        if (playerConnectionManager != null)
+        {
             playerConnectionManager.SetPlayerName(name);
         }
     }
-   
+
     /// <summary>
     /// Gets a reference to the PlayerConnectionManager
     /// </summary>
-    public PlayerConnectionManager GetPlayerConnectionManager() {
-        if (playerConnectionManagerRef == null) {
+    public PlayerConnectionManager GetPlayerConnectionManager()
+    {
+        if (playerConnectionManagerRef == null)
+        {
             playerConnectionManagerRef = GetComponent<PlayerConnectionManager>();
-           
+
             // Auto-add if missing
-            if (playerConnectionManagerRef == null) {
+            if (playerConnectionManagerRef == null)
+            {
                 playerConnectionManagerRef = gameObject.AddComponent<PlayerConnectionManager>();
             }
         }
-       
+
         return playerConnectionManagerRef;
     }
-   
+
     /// <summary>
     /// Checks if the current disconnect was intentional
     /// </summary>
-    public bool IsIntentionalDisconnect() {
+    public bool IsIntentionalDisconnect()
+    {
         return intentionalDisconnect;
     }
 }
+
