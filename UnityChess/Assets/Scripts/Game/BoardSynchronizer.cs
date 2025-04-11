@@ -13,7 +13,7 @@ public class BoardSynchronizer : NetworkBehaviour
     private GameManager gameManager;
     private BoardManager boardManager;
     private ChessNetworkManager networkManager;
-    private NetworkTurnManager turnManager;
+    private ImprovedTurnSystem turnSystem;
 
     // Time between board state updates (seconds)
     [SerializeField] private float syncInterval = 0.1f;
@@ -33,7 +33,13 @@ public class BoardSynchronizer : NetworkBehaviour
         gameManager = GameManager.Instance;
         boardManager = BoardManager.Instance;
         networkManager = ChessNetworkManager.Instance;
-        turnManager = FindObjectOfType<NetworkTurnManager>();
+        
+        // Find the improved turn system
+        turnSystem = FindObjectOfType<ImprovedTurnSystem>();
+        if (turnSystem == null)
+        {
+            Debug.LogWarning("[BoardSynchronizer] ImprovedTurnSystem not found. Using fallback turn management.");
+        }
     
         if (gameManager == null || boardManager == null || networkManager == null) {
             Debug.LogError("[BoardSynchronizer] Missing required component references!");
@@ -96,11 +102,17 @@ public class BoardSynchronizer : NetworkBehaviour
                 // Send direct move sync to the host
                 NotifyHostOfMoveServerRpc(startSquare.ToString(), endSquare.ToString());
                 
-                // Request turn change after move completes
-                if (turnManager != null)
+                // FIX: Begin tracking the move in ImprovedTurnSystem
+                if (turnSystem != null)
                 {
-                    // Allow a small delay for move completion
-                    Invoke("RequestTurnChangeToWhite", 0.5f);
+                    turnSystem.BeginMove();
+                }
+                
+                // Request turn change after move completes
+                if (turnSystem != null)
+                {
+                    // End the move, which will trigger a turn change
+                    StartCoroutine(EndMoveAfterDelay(0.5f));
                 }
             }
             
@@ -110,48 +122,36 @@ public class BoardSynchronizer : NetworkBehaviour
                 // Send direct move sync to the client
                 NotifyClientOfMoveClientRpc(startSquare.ToString(), endSquare.ToString());
                 
-                // Change turn after move completes
-                if (turnManager != null)
+                // FIX: Begin tracking the move in ImprovedTurnSystem
+                if (turnSystem != null)
                 {
-                    // Allow a small delay for move completion
-                    Invoke("ChangeTurnToBlack", 0.5f);
+                    turnSystem.BeginMove();
+                }
+                
+                // Change turn after move completes
+                if (turnSystem != null)
+                {
+                    // End the move, which will trigger a turn change
+                    StartCoroutine(EndMoveAfterDelay(0.5f));
                 }
             }
         }
     }
     
     /// <summary>
-    /// Helper method to request turn change to White (called via Invoke)
+    /// Helper method to end a move with a delay to ensure synchronization
     /// </summary>
-    private void RequestTurnChangeToWhite()
+    private System.Collections.IEnumerator EndMoveAfterDelay(float delay)
     {
-        // Get current game state
-        Side currentGameSide = gameManager.SideToMove;
-        int currentGameTurn = currentGameSide == Side.White ? 0 : 1;
-    
-        // Only request turn change if truly needed
-        if (currentGameTurn == 1) // If game thinks it's Black's turn
+        yield return new WaitForSeconds(delay);
+        
+        if (turnSystem != null)
         {
-            if (turnManager != null)
-            {
-                Debug.Log("[BoardSynchronizer] Requesting turn change from Black to White");
-                turnManager.RequestTurnChangeServerRpc(1, 0); // From Black (1) to White (0)
-            }
-        }
-        else
-        {
-            Debug.Log("[BoardSynchronizer] Turn already White in game state, no request needed");
-        }
-    }
-    
-    /// <summary>
-    /// Helper method to change turn to Black (called via Invoke)
-    /// </summary>
-    private void ChangeTurnToBlack()
-    {
-        if (turnManager != null && (IsHost || IsServer))
-        {
-            turnManager.ChangeCurrentTurn(1); // Change to Black (1)
+            // End the move, which will trigger turn synchronization
+            turnSystem.EndMove();
+            
+            // Force refresh all pieces after a move completes
+            networkManager.RefreshAllPiecesInteractivity();
         }
     }
 
@@ -195,10 +195,10 @@ public class BoardSynchronizer : NetworkBehaviour
             if (verbose) Debug.Log("[SERVER] Move executed, board state synchronized");
             
             // FIX: Also sync turn state with game state
-            if (turnManager != null) {
+            if (turnSystem != null) {
                 Side currentSide = gameManager.SideToMove;
                 int newTurnValue = currentSide == Side.White ? 0 : 1;
-                turnManager.ChangeCurrentTurn(newTurnValue);
+                turnSystem.SetTurn(newTurnValue);
                 Debug.Log($"[SERVER] Turn synchronized to match game state: {currentSide}");
             }
         }
@@ -296,11 +296,11 @@ public class BoardSynchronizer : NetworkBehaviour
             // Directly update the piece position on the host
             DirectlyMovePiece(startSquare, endSquare);
             
-            // FIX: Ensure turn changes after receiving a move from client
-            if (turnManager != null)
+            // FIX: Ensure proper turn state after receiving a move from client
+            if (turnSystem != null)
             {
                 // After client (Black) moves, it should be White's turn
-                StartCoroutine(DelayedTurnChange(0.5f, 0)); // Change to White (0) after delay
+                turnSystem.SetTurn(0); // Change to White (0)
             }
         }
     }
@@ -319,157 +319,11 @@ public class BoardSynchronizer : NetworkBehaviour
             DirectlyMovePiece(startSquare, endSquare);
             
             // FIX: Ensure turn changes on client after receiving a move from host
-            if (turnManager != null)
+            if (turnSystem != null)
             {
                 // After host (White) moves, it should be Black's turn
-                StartCoroutine(DelayedTurnChange(0.5f, 1)); // Change to Black (1) after delay
+                turnSystem.SetTurn(1); // Change to Black (1)
             }
         }
-    }
-    
-    /// <summary>
-    /// Helper coroutine to change turn after a delay
-    /// </summary>
-    private System.Collections.IEnumerator DelayedTurnChange(float delay, int newTurn)
-    {
-        yield return new WaitForSeconds(delay);
-        
-        if (IsHost || IsServer)
-        {
-            // If we're the host/server, change turn directly
-            if (turnManager != null)
-            {
-                Debug.Log($"[SERVER] Changing turn to {(newTurn == 0 ? "White" : "Black")} after delay");
-                turnManager.ChangeCurrentTurn(newTurn);
-            }
-        }
-        else
-        {
-            // If we're the client, request turn change from server
-            if (turnManager != null)
-            {
-                Debug.Log($"[CLIENT] Requesting turn change to {(newTurn == 0 ? "White" : "Black")} after delay");
-                int currentTurn = turnManager.currentTurn.Value;
-                turnManager.RequestTurnChangeServerRpc(currentTurn, newTurn);
-            }
-        }
-        
-        // Always refresh piece interactivity after turn change
-        if (networkManager != null)
-        {
-            networkManager.RefreshAllPiecesInteractivity();
-        }
-    }
-
-    [ServerRpc(RequireOwnership = false)]
-    public void RequestMoveValidationServerRpc(ulong clientId, string startSquare, string endSquare, string serializedGameState)
-    {
-        if (!IsServer && !IsHost) return;
-        
-        if (verbose) Debug.Log($"[SERVER] Received move validation request from client {clientId}: {startSquare} to {endSquare}");
-        
-        // Get player info
-        PlayerConnectionManager.PlayerInfo playerInfo = networkManager.GetPlayerConnectionManager().GetPlayerInfo(clientId);
-        if (playerInfo == null)
-        {
-            Debug.LogError($"[SERVER] Player info not found for client {clientId}");
-            RejectMoveClientRpc(clientId, startSquare, endSquare);
-            return;
-        }
-        
-        // Get the current side to move from the CURRENT server state
-        Side currentSide = gameManager.SideToMove;
-        
-        if (verbose) Debug.Log($"[SERVER] Current turn: {currentSide}, Player side: {playerInfo.AssignedSide}");
-        
-        // Verify it's the client's turn
-        if (playerInfo.AssignedSide != currentSide)
-        {
-            Debug.Log($"[SERVER] Move rejected - wrong player's turn. Current side: {currentSide}, Player side: {playerInfo.AssignedSide}");
-            RejectMoveClientRpc(clientId, startSquare, endSquare);
-            return;
-        }
-        
-        // Save current state in case we need to revert
-        string previousState = gameManager.SerializeGame();
-        
-        try {
-            // Apply the client's move to the server state
-            gameManager.LoadGame(serializedGameState);
-            
-            // Check if the move is valid by checking if the side to move has changed
-            if (gameManager.SideToMove != currentSide) {
-                // The move changed the side to move, which indicates it was applied
-                if (verbose) Debug.Log("[SERVER] Client move validated and applied");
-                
-                // EMERGENCY FIX: Apply the move visually on the host
-                DirectlyMovePiece(startSquare, endSquare);
-                
-                // The new state will be synchronized to all clients
-                OnMoveExecuted();
-                
-                // Notify the client that the move was accepted
-                AcceptMoveClientRpc(clientId);
-                
-                // Update turn after successful move
-                if (turnManager != null && currentSide == Side.Black)
-                {
-                    turnManager.RequestTurnChangeServerRpc(1, 0); // From Black to White
-                }
-            } else {
-                // The side to move didn't change, which means the move wasn't applied properly
-                Debug.LogError("[SERVER] Client move was not applied correctly");
-                gameManager.LoadGame(previousState); // Restore previous state
-                RejectMoveClientRpc(clientId, startSquare, endSquare);
-            }
-        }
-        catch (System.Exception ex) {
-            // If there's an error applying the move, reject it
-            Debug.LogError($"[SERVER] Error validating move: {ex.Message}");
-            gameManager.LoadGame(previousState); // Restore previous state
-            RejectMoveClientRpc(clientId, startSquare, endSquare);
-        }
-    }
-
-    /// <summary>
-    /// Notifies a client that their move was accepted
-    /// </summary>
-    [ClientRpc]
-    public void AcceptMoveClientRpc(ulong clientId)
-    {
-        // Only process this on the client that sent the move
-        if (clientId != NetworkManager.Singleton.LocalClientId) return;
-        
-        if (verbose) Debug.Log($"[CLIENT] Move was accepted by server");
-    }
-
-    // Add this event for notifying when a move has been executed
-    public static event System.Action MoveExecutedEvent;
-    
-    /// <summary>
-    /// Notifies a client that their move was rejected
-    /// </summary>
-    [ClientRpc]
-    public void RejectMoveClientRpc(ulong clientId, string startSquare, string endSquare)
-    {
-        // Only process this on the client that sent the move
-        if (clientId != NetworkManager.Singleton.LocalClientId) return;
-        
-        if (verbose) Debug.Log($"[CLIENT] Move from {startSquare} to {endSquare} was rejected");
-        
-        // Return the piece to its original position
-        Square start = SquareUtil.StringToSquare(startSquare);
-        GameObject pieceGO = boardManager.GetPieceGOAtPosition(start);
-        
-        if (pieceGO != null)
-        {
-            // Reset the piece position
-            Transform squareTransform = boardManager.GetSquareGOByPosition(start).transform;
-            pieceGO.transform.SetParent(squareTransform);
-            pieceGO.transform.localPosition = Vector3.zero;
-        }
-        
-        // Ensure the full board gets synchronized
-        SyncBoardStateClientRpc(gameManager.SerializeGame());
     }
 }

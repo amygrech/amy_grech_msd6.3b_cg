@@ -15,10 +15,13 @@ public class ChessNetworkPieceController : MonoBehaviour
     private float checkTimer = 0f;
     
     // Reference to turn manager
-    private ImprovedTurnSystem turnManager;
+    private ImprovedTurnSystem turnSystem;
+    
+    // Track the last interactive state to avoid constant toggling
+    private bool lastInteractiveState = false;
     
     [SerializeField] private bool debugMode = false;
-    
+
     void Awake() 
     {
         // Get the VisualPiece component
@@ -34,7 +37,7 @@ public class ChessNetworkPieceController : MonoBehaviour
     void Start()
     {
         // Find turn manager reference
-        turnManager = FindObjectOfType<ImprovedTurnSystem>();
+        turnSystem = FindObjectOfType<ImprovedTurnSystem>();
         
         // Check if we're in a networked game
         CheckNetworkState();
@@ -108,9 +111,15 @@ public class ChessNetworkPieceController : MonoBehaviour
         // Second check: Is it this player's turn? (Using the improved turn manager)
         bool isPlayersTurn = false;
         
-        if (turnManager != null)
+        if (turnSystem != null)
         {
-            isPlayersTurn = turnManager.CanPlayerMove(localPlayerSide);
+            isPlayersTurn = turnSystem.CanPlayerMove(localPlayerSide);
+            
+            // FIX: If turn interactivity is locked, no piece can move
+            if (turnSystem.lockInteractivity.Value || turnSystem.moveInProgress.Value)
+            {
+                isPlayersTurn = false;
+            }
         }
         else
         {
@@ -121,14 +130,18 @@ public class ChessNetworkPieceController : MonoBehaviour
         // Only allow move if both conditions are true
         canMove = isPlayersPiece && isPlayersTurn;
     
-        if (debugMode || visualPiece.enabled != canMove) {
-            Debug.Log($"[ChessNetworkPieceController] {gameObject.name} ({pieceColor}) interactivity set to {canMove}. " +
+        // Only log and update if the state has changed
+        if (lastInteractiveState != canMove || debugMode) 
+        {
+            if (debugMode)
+                Debug.Log($"[ChessNetworkPieceController] {gameObject.name} ({pieceColor}) interactivity set to {canMove}. " +
                       $"IsPlayersPiece={isPlayersPiece}, IsPlayersTurn={isPlayersTurn}, LocalSide={localPlayerSide}");
-        }
-    
-        // Only update if needed to avoid constant enable/disable
-        if (visualPiece.enabled != canMove) {
+            
+            // Update the enabled state
             visualPiece.enabled = canMove;
+            
+            // Update tracking variable
+            lastInteractiveState = canMove;
         }
     }
     
@@ -138,6 +151,11 @@ public class ChessNetworkPieceController : MonoBehaviour
     public void ForceUpdateInteractivity()
     {
         if (debugMode) Debug.Log($"[ChessNetworkPieceController] ForceUpdateInteractivity called for {gameObject.name}");
+        
+        // Reset the tracking variable to ensure update occurs
+        lastInteractiveState = !lastInteractiveState;
+        
+        // Update piece interactivity
         UpdatePieceInteractivity();
     }
 }

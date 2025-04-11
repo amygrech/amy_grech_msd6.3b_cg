@@ -55,6 +55,11 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager>
 
     [SerializeField] private bool useNetworkErrorHandler = true;
     [SerializeField] private bool useReconnectionManager = true;
+    
+    [Header("Game End Detection")]
+    [SerializeField] private NetworkGameEndDetector gameEndDetector;
+    [SerializeField] private GameObject gameEndPanelPrefab;
+    private GameObject gameEndPanel;
 
     // Track the local player's side
     private Side localPlayerSide = Side.White;
@@ -246,6 +251,8 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager>
         {
             StopCoroutine(reconnectionTimeoutCoroutine);
         }
+        
+        GameManager.GameEndedEvent -= OnGameEnded;
     }
 
     private void Update()
@@ -1662,6 +1669,65 @@ public class ChessNetworkManager : MonoBehaviourSingleton<ChessNetworkManager>
     public bool IsIntentionalDisconnect()
     {
         return intentionalDisconnect;
+    }
+    
+    private void SetupGameEndDetection()
+    {
+        // Find the game end detector if not assigned
+        if (gameEndDetector == null)
+            gameEndDetector = FindObjectOfType<NetworkGameEndDetector>();
+    
+        // Create the game end panel if it doesn't exist
+        if (gameEndPanel == null && gameEndPanelPrefab != null)
+        {
+            gameEndPanel = Instantiate(gameEndPanelPrefab, transform);
+            gameEndPanel.SetActive(false);
+        }
+    
+        // Subscribe to game end events
+        GameManager.GameEndedEvent += OnGameEnded;
+    }
+
+// Add this method to ChessNetworkManager
+    private void OnGameEnded()
+    {
+        if (verbose) Debug.Log("[ChessNetworkManager] Game ended detected");
+    
+        // If we're in a networked game, let the NetworkGameEndDetector handle it
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient && gameEndDetector != null)
+        {
+            // The NetworkGameEndDetector will handle this
+            return;
+        }
+    
+        // Otherwise handle locally (single player mode)
+        if (gameEndPanel != null)
+        {
+            gameEndPanel.SetActive(true);
+            GameEndPanel panelController = gameEndPanel.GetComponent<GameEndPanel>();
+            if (panelController != null)
+            {
+                panelController.UpdatePanel();
+            }
+        }
+    }
+
+// Add this method to ChessNetworkManager
+    public void ShowGameEndUI(string message, bool isWin)
+    {
+        if (gameEndPanel != null)
+        {
+            gameEndPanel.SetActive(true);
+            GameEndPanel panelController = gameEndPanel.GetComponent<GameEndPanel>();
+            if (panelController != null)
+            {
+                panelController.UpdatePanel();
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[ChessNetworkManager] Game end panel is not initialized");
+        }
     }
 }
 

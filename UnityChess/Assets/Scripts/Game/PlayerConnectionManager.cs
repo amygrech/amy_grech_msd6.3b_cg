@@ -129,17 +129,7 @@ public class PlayerConnectionManager : MonoBehaviour
     /// </summary>
     private void OnClientDisconnected(ulong clientId)
     {
-        if (players.TryGetValue(clientId, out PlayerInfo player))
-        {
-            player.IsConnected = false;
-            player.DisconnectTime = Time.time;
-            
-            if (verbose) Debug.Log($"Player disconnected: {player.PlayerName} ({player.AssignedSide})");
-            
-            // Notify others of the disconnection
-            PlayerDisconnectedEvent?.Invoke(player);
-            ConnectionStatusChangedEvent?.Invoke("Player Disconnected");
-        }
+        HandlePlayerDisconnection(clientId);
     }
     
     /// <summary>
@@ -166,6 +156,29 @@ public class PlayerConnectionManager : MonoBehaviour
         
         // If we get here, treat it as a new connection
         OnClientConnected(clientId);
+    }
+    
+    private void HandlePlayerDisconnection(ulong clientId)
+    {
+        if (players.TryGetValue(clientId, out PlayerInfo player))
+        {
+            player.IsConnected = false;
+            player.DisconnectTime = Time.time;
+        
+            if (verbose) Debug.Log($"Player disconnected: {player.PlayerName} ({player.AssignedSide})");
+        
+            // Notify others of the disconnection
+            PlayerDisconnectedEvent?.Invoke(player);
+            ConnectionStatusChangedEvent?.Invoke("Player Disconnected");
+        
+            // Check if we need to end the game due to disconnection
+            NetworkGameEndDetector endDetector = FindObjectOfType<NetworkGameEndDetector>();
+            if (endDetector != null && NetworkManager.Singleton.IsHost)
+            {
+                // Report the disconnection to the game end detector
+                endDetector.ReportPlayerDisconnection(player.AssignedSide);
+            }
+        }
     }
     
     /// <summary>

@@ -23,6 +23,27 @@ public class ImprovedTurnSystem : NetworkBehaviour
     private BoardSynchronizer boardSynchronizer;
     
     [SerializeField] private bool verbose = true;
+    
+    public NetworkVariable<bool> moveInProgress = new NetworkVariable<bool>(false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server);
+        
+    // Lock interactivity during move transitions
+    public NetworkVariable<bool> lockInteractivity = new NetworkVariable<bool>(false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server);
+        
+    // Add a minimum time between allowed moves (in seconds)
+    [SerializeField] private float moveCooldown = 0.5f;
+    
+    // Temporarily lock pieces during transitions
+    public void LockPiecesForTransition(float duration = 0.5f)
+    {
+        if (!IsServer && !IsHost) return;
+        
+        lockInteractivity.Value = true;
+        StartCoroutine(UnlockPiecesAfterDelay(duration));
+    }
 
     private void Awake()
     {
@@ -191,9 +212,11 @@ public class ImprovedTurnSystem : NetworkBehaviour
 
         Debug.Log($"[ImprovedTurnSystem] Setting turn to {(turnValue == 0 ? "White" : "Black")}");
         
+        // Lock pieces briefly during turn change
+        LockPiecesForTransition(moveCooldown);
+        
         // Update turn value
         currentTurn.Value = turnValue;
-        canMove.Value = true;
         
         // Notify clients
         SyncTurnStateClientRpc(turnValue);
@@ -241,20 +264,32 @@ public class ImprovedTurnSystem : NetworkBehaviour
     /// </summary>
     public bool CanPlayerMove(Side playerSide)
     {
-        if (!canMove.Value)
+        // If movement is locked or a move is in progress, no one can move
+        if (lockInteractivity.Value || moveInProgress.Value)
         {
+            if (verbose) Debug.Log($"[ImprovedTurnSystem] Movement locked - lockInteractivity:{lockInteractivity.Value}, moveInProgress:{moveInProgress.Value}");
             return false;
         }
 
+        // Otherwise use the normal turn logic
         bool isPlayersTurn = (currentTurn.Value == 0 && playerSide == Side.White) ||
-                            (currentTurn.Value == 1 && playerSide == Side.Black);
+                             (currentTurn.Value == 1 && playerSide == Side.Black);
 
-        if (verbose)
+        if (verbose && !isPlayersTurn)
         {
-            Debug.Log($"[ImprovedTurnSystem] Can {playerSide} move? {isPlayersTurn} (Current turn: {(currentTurn.Value == 0 ? "White" : "Black")})");
+            Debug.Log($"[ImprovedTurnSystem] Not {playerSide}'s turn (Current turn: {(currentTurn.Value == 0 ? "White" : "Black")})");
         }
 
         return isPlayersTurn;
+    }
+    
+    private System.Collections.IEnumerator UnlockPiecesAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        lockInteractivity.Value = false;
+        
+        // Force refresh pieces
+        ForceRefreshPiecesClientRpc();
     }
 
     /// <summary>
@@ -265,5 +300,51 @@ public class ImprovedTurnSystem : NetworkBehaviour
     {
         Debug.Log("[ImprovedTurnSystem] Forcing refresh of all pieces");
         RefreshInteractivity();
+    }
+    
+    public void BeginMove()
+    {
+        if (!IsServer && !IsHost) 
+        {
+            BeginMoveServerRpc();
+            return;
+        }
+        
+        moveInProgress.Value = true;
+    }
+    
+    public void EndMove()
+    {
+        if (!IsServer && !IsHost) 
+        {
+            EndMoveServerRpc();
+            return;
+        }
+        
+        moveInProgress.Value = false;
+        
+        // FIX: Explicitly synchronize turns with the game state after a move completes
+        SyncWithGameState();
+        
+        // Add a brief lock to prevent immediate move after turn change
+        LockPiecesForTransition(moveCooldown);
+        
+        // Force refresh all pieces on both sides to ensure proper interactivity
+        ForceRefreshPiecesClientRpc();
+    }
+    
+    [ServerRpc(RequireOwnership = false)]
+    public void BeginMoveServerRpc()
+    {
+        moveInProgress.Value = true;
+    }
+    
+    [ServerRpc(RequireOwnership = false)]
+    public void EndMoveServerRpc()
+    {
+        moveInProgress.Value = false;
+        
+        // Add a brief lock to prevent immediate move after turn change
+        LockPiecesForTransition(moveCooldown);
     }
 }
