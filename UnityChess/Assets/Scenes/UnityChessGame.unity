@@ -1545,6 +1545,7 @@ GameObject:
   - component: {fileID: 823356700}
   - component: {fileID: 823356701}
   - component: {fileID: 823356702}
+  - component: {fileID: 823356703}
   m_Layer: 0
   m_Name: DLCStoreManager
   m_TagString: Untagged
@@ -1603,6 +1604,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   hostImage: {fileID: 1913184368}
   clientImage: {fileID: 1478158563}
+--- !u!114 &823356703
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 823356699}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 16bc6a4e64fa046ea8a15c9421cefc58, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!114 &854423559 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 7463109367895200373, guid: caf93e4ddc2f0544cbddf4e2facb7fd7,
@@ -2562,6 +2575,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1310878641}
+  - component: {fileID: 1310878643}
+  - component: {fileID: 1310878642}
   m_Layer: 0
   m_Name: Analytics
   m_TagString: Untagged
@@ -2584,6 +2599,46 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 15
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1310878642
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1310878640}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19faea644671441caed66037bdf3fde, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  mainCanvas: {fileID: 0}
+  mainMenu: {fileID: 0}
+  buttonContainer: {fileID: 0}
+  createDashboardAtRuntime: 1
+  analyticsDashboardPrefab: {fileID: 0}
+  analyticsIcon: {fileID: 0}
+--- !u!114 &1310878643
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1310878640}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66fcd8373efd5483d91e3b7d7c55569e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  analyticsDashboardPanel: {fileID: 0}
+  totalGamesText: {fileID: 0}
+  totalMovesText: {fileID: 0}
+  topOpeningMovesText: {fileID: 0}
+  topDlcPurchasesText: {fileID: 0}
+  gameResultsText: {fileID: 0}
+  saveGameButton: {fileID: 0}
+  loadGameButton: {fileID: 0}
+  loadGameIdInput: {fileID: 0}
+  showAnalyticsButton: {fileID: 0}
 --- !u!1 &1382098137
 GameObject:
   m_ObjectHideFlags: 0
@@ -2984,6 +3039,8 @@ GameObject:
   - component: {fileID: 1589140724}
   - component: {fileID: 1589140725}
   - component: {fileID: 1589140728}
+  - component: {fileID: 1589140731}
+  - component: {fileID: 1589140730}
   m_Layer: 0
   m_Name: ChessNetworkManager
   m_TagString: Untagged
@@ -3106,6 +3163,39 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2cba141883d2397458218c5ab03c6355, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1589140730
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1589140723}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a35a555521a4f4060a13e83ad13671d7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &1589140731
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1589140723}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b066062cd279424998d8338ad71cb2e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameStatePanel: {fileID: 0}
+  gameIdInputField: {fileID: 0}
+  saveGameButton: {fileID: 0}
+  loadGameButton: {fileID: 0}
+  statusText: {fileID: 0}
+  closeButton: {fileID: 0}
+  autoSaveToggle: {fileID: 0}
+  autoSaveInterval: 60
+  enableAutoSave: 0
 --- !u!850595691 &1606255547
 LightingSettings:
   m_ObjectHideFlags: 0
@@ -5860,7 +5950,7 @@ PrefabInstance:
     - target: {fileID: 6810705476634634377, guid: caf93e4ddc2f0544cbddf4e2facb7fd7,
         type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 0
+      value: -0.000061035156
       objectReference: {fileID: 0}
     - target: {fileID: 6823757786411297794, guid: caf93e4ddc2f0544cbddf4e2facb7fd7,
         type: 3}
