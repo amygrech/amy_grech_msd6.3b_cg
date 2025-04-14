@@ -3,11 +3,12 @@ using UnityEngine.UI;
 using System.Collections.Generic;
 using Firebase.Database;
 using Firebase.Extensions;
+using TMPro;
 
 public class AnalyticsDashboard : MonoBehaviour
 {
-    public Text topDLCsText;
-    public Text winLossText;
+    public TextMeshProUGUI topDLCsText;
+    public TextMeshProUGUI winLossText;
 
     void Start()
     {

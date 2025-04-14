@@ -36,6 +36,9 @@ public class ImprovedTurnSystem : NetworkBehaviour
     // Add a minimum time between allowed moves (in seconds)
     [SerializeField] private float moveCooldown = 0.5f;
     
+    // Track when we've processed a visual piece move to prevent double-processing
+    private bool processingMove = false;
+    
     // Temporarily lock pieces during transitions
     public void LockPiecesForTransition(float duration = 0.5f)
     {
@@ -73,12 +76,16 @@ public class ImprovedTurnSystem : NetworkBehaviour
             // Initialize turn state - White starts
             currentTurn.Value = 0;
             canMove.Value = true;
+            moveInProgress.Value = false;
+            lockInteractivity.Value = false;
             Debug.Log("[ImprovedTurnSystem] Server initialized: White's turn");
         }
 
         // Subscribe to network variable changes
         currentTurn.OnValueChanged += OnTurnChanged;
         canMove.OnValueChanged += OnCanMoveChanged;
+        moveInProgress.OnValueChanged += OnMoveInProgressChanged;
+        lockInteractivity.OnValueChanged += OnLockInteractivityChanged;
 
         // Subscribe to game events
         GameManager.MoveExecutedEvent += OnGameMoveExecuted;
@@ -98,6 +105,8 @@ public class ImprovedTurnSystem : NetworkBehaviour
         // Unsubscribe from all events
         currentTurn.OnValueChanged -= OnTurnChanged;
         canMove.OnValueChanged -= OnCanMoveChanged;
+        moveInProgress.OnValueChanged -= OnMoveInProgressChanged;
+        lockInteractivity.OnValueChanged -= OnLockInteractivityChanged;
         GameManager.MoveExecutedEvent -= OnGameMoveExecuted;
         VisualPiece.VisualPieceMoved -= OnVisualPieceMoved;
     }
@@ -134,6 +143,24 @@ public class ImprovedTurnSystem : NetworkBehaviour
     }
 
     /// <summary>
+    /// Called when the moveInProgress value changes
+    /// </summary>
+    private void OnMoveInProgressChanged(bool previousValue, bool newValue)
+    {
+        Debug.Log($"[ImprovedTurnSystem] MoveInProgress changed from {previousValue} to {newValue}");
+        RefreshInteractivity();
+    }
+
+    /// <summary>
+    /// Called when the lockInteractivity value changes
+    /// </summary>
+    private void OnLockInteractivityChanged(bool previousValue, bool newValue)
+    {
+        Debug.Log($"[ImprovedTurnSystem] LockInteractivity changed from {previousValue} to {newValue}");
+        RefreshInteractivity();
+    }
+
+    /// <summary>
     /// Refreshes piece interactivity based on current turn state
     /// </summary>
     private void RefreshInteractivity()
@@ -149,29 +176,53 @@ public class ImprovedTurnSystem : NetworkBehaviour
     /// </summary>
     private void OnVisualPieceMoved(Square startSquare, Transform pieceTransform, Transform endSquareTransform, Piece promotionPiece = null)
     {
+        // Prevent double-processing of the same move
+        if (processingMove) return;
+
+        // We only want the server to process turn changes
         if (!IsServer && !IsHost) return;
 
-        // Get the piece side
-        VisualPiece visualPiece = pieceTransform.GetComponent<VisualPiece>();
-        if (visualPiece == null) return;
+        // Set the flag to prevent double-processing
+        processingMove = true;
 
-        // Get the piece side (White or Black)
-        Side pieceSide = visualPiece.PieceColor;
-
-        if (verbose)
-            Debug.Log($"[ImprovedTurnSystem] Piece moved: {pieceSide} from {startSquare} to {endSquareTransform.name}");
-
-        // Toggle turn based on which side just moved
-        if (pieceSide == Side.White)
+        try
         {
-            // If White moved, change to Black's turn
-            SetTurn(1); // Black's turn
+            // Get the piece side
+            VisualPiece visualPiece = pieceTransform.GetComponent<VisualPiece>();
+            if (visualPiece == null) return;
+
+            // Get the piece side (White or Black)
+            Side pieceSide = visualPiece.PieceColor;
+
+            if (verbose)
+                Debug.Log($"[ImprovedTurnSystem] Piece moved: {pieceSide} from {startSquare} to {endSquareTransform.name}");
+
+            // Mark move as in progress
+            moveInProgress.Value = true;
+
+            // Change turn based on which side just moved
+            int newTurn = (pieceSide == Side.White) ? 1 : 0;
+            SetTurn(newTurn);
+
+            // Add a delay before completing the move processing
+            StartCoroutine(FinishMoveProcessing(0.5f));
         }
-        else
+        finally
         {
-            // If Black moved, change to White's turn
-            SetTurn(0); // White's turn
+            // Clear the flag to allow future move processing
+            processingMove = false;
         }
+    }
+
+    private System.Collections.IEnumerator FinishMoveProcessing(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        
+        // Complete the move
+        moveInProgress.Value = false;
+        
+        // Force refresh pieces
+        ForceRefreshPiecesClientRpc();
     }
 
     /// <summary>
@@ -232,15 +283,8 @@ public class ImprovedTurnSystem : NetworkBehaviour
 
         Debug.Log($"[ImprovedTurnSystem] Turn change requested: {fromTurn} → {toTurn}");
 
-        // Only allow valid turn transitions
-        if (currentTurn.Value == fromTurn)
-        {
-            SetTurn(toTurn);
-        }
-        else
-        {
-            Debug.LogWarning($"[ImprovedTurnSystem] Invalid turn change request. Current={currentTurn.Value}, From={fromTurn}, To={toTurn}");
-        }
+        // Always allow turn changes when requested - the client only requests when needed
+        SetTurn(toTurn);
     }
 
     /// <summary>
@@ -323,7 +367,7 @@ public class ImprovedTurnSystem : NetworkBehaviour
         
         moveInProgress.Value = false;
         
-        // FIX: Explicitly synchronize turns with the game state after a move completes
+        // Explicitly synchronize turns with the game state after a move completes
         SyncWithGameState();
         
         // Add a brief lock to prevent immediate move after turn change

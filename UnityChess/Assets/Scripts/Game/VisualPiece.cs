@@ -44,12 +44,18 @@ public class VisualPiece : MonoBehaviour {
     private Transform originalParent;
     
     // Debug flag
-    [SerializeField] private bool debugMode = true;
+    [SerializeField] private bool debugMode = false;
     
     // Reference to the BoardSynchronizer
     private BoardSynchronizer boardSynchronizer;
     // Reference to the NetworkTurnManager
-    private NetworkTurnManager turnManager;
+    private ImprovedTurnSystem turnSystem;
+    
+    // Track if a move is in progress
+    private bool moveInProgress = false;
+    
+    // Track moves we've already processed to prevent duplicates
+    private static HashSet<string> processedMoves = new HashSet<string>();
 
 	/// <summary>
 	/// Initialises the visual piece. Sets up necessary variables and obtains a reference to the main camera.
@@ -69,8 +75,8 @@ public class VisualPiece : MonoBehaviour {
         }
         
         // Find the NetworkTurnManager
-        turnManager = FindObjectOfType<NetworkTurnManager>();
-        if (turnManager == null && debugMode) {
+        turnSystem = FindObjectOfType<ImprovedTurnSystem>();
+        if (turnSystem == null && debugMode) {
             Debug.LogWarning("NetworkTurnManager not found in scene. Turn management might not work properly.");
         }
 	}
@@ -88,6 +94,18 @@ public class VisualPiece : MonoBehaviour {
 					if (debugMode) Debug.Log($"Cannot move piece: {PieceColor} - not your turn or piece");
 					return;
 				}
+				
+				// FIXED: Also check if a move is in progress
+				if (turnSystem != null && (turnSystem.moveInProgress.Value || turnSystem.lockInteractivity.Value)) {
+                    if (debugMode) Debug.Log($"Cannot move piece: {PieceColor} - move in progress or locked");
+                    return;
+                }
+                
+                // FIXED: If we're already processing a move, don't allow starting another
+                if (moveInProgress) {
+                    if (debugMode) Debug.Log($"Cannot move piece: {PieceColor} - local move in progress");
+                    return;
+                }
 			}
         
 			// Convert the world position of the piece to screen-space and store it.
@@ -155,6 +173,26 @@ public class VisualPiece : MonoBehaviour {
             Square startSquare = CurrentSquare;
             Square endSquare = new Square(closestSquareTransform.name);
             
+            // Generate a unique ID for this move
+            string moveId = $"{startSquare}-{endSquare}";
+            
+            // Check if we've already processed this move
+            if (processedMoves.Contains(moveId))
+            {
+                if (debugMode) Debug.Log($"Skipping already processed move: {moveId}");
+                thisTransform.position = originalParent.position;
+                return;
+            }
+            
+            // Track this move to prevent double processing
+            processedMoves.Add(moveId);
+            
+            // Limit the size of the processed moves set
+            if (processedMoves.Count > 20)
+            {
+                processedMoves.Clear();
+            }
+            
             if (debugMode) Debug.Log($"Attempting to move {PieceColor} piece from {startSquare} to {endSquare}");
             
             // Check if the move is legal using GameManager
@@ -166,6 +204,9 @@ public class VisualPiece : MonoBehaviour {
                 return;
             }
             
+            // FIXED: Mark that a move is in progress locally
+            moveInProgress = true;
+            
             // CRITICAL FIX: If we're in a networked game, directly notify about the move
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient && boardSynchronizer != null) {
                 if (NetworkManager.Singleton.IsHost) {
@@ -174,7 +215,7 @@ public class VisualPiece : MonoBehaviour {
                     boardSynchronizer.NotifyClientOfMoveClientRpc(startSquare.ToString(), endSquare.ToString());
                     
                     // Explicitly change turn to Black after White's move
-                    if (turnManager != null && PieceColor == Side.White) {
+                    if (turnSystem != null && PieceColor == Side.White) {
                         StartCoroutine(DelayedTurnChange(0.5f, 1)); // Change to Black (1) after delay
                     }
                 } else {
@@ -183,7 +224,7 @@ public class VisualPiece : MonoBehaviour {
                     boardSynchronizer.NotifyHostOfMoveServerRpc(startSquare.ToString(), endSquare.ToString());
                     
                     // CRITICAL FIX: Explicitly request turn change to White after Black's move
-                    if (turnManager != null && PieceColor == Side.Black) {
+                    if (turnSystem != null && PieceColor == Side.Black) {
                         StartCoroutine(DelayedTurnChange(0.5f, 0)); // Request change to White (0) after delay
                     }
                 }
@@ -202,8 +243,20 @@ public class VisualPiece : MonoBehaviour {
                 thisTransform.SetParent(targetSquareTransform);
                 thisTransform.localPosition = Vector3.zero;
             }
+            
+            // Clear the move in progress after a short delay
+            StartCoroutine(ClearMoveInProgressAfterDelay(1.0f));
 		}
 	}
+    
+    /// <summary>
+    /// Helper coroutine to clear the move in progress state
+    /// </summary>
+    private System.Collections.IEnumerator ClearMoveInProgressAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        moveInProgress = false;
+    }
     
     /// <summary>
     /// Helper coroutine to change turn after a delay
@@ -211,15 +264,15 @@ public class VisualPiece : MonoBehaviour {
     private System.Collections.IEnumerator DelayedTurnChange(float delay, int newTurn) {
         yield return new WaitForSeconds(delay);
         
-        if (turnManager != null) {
+        if (turnSystem != null) {
             if (NetworkManager.Singleton.IsHost) {
                 // If we're the host, change turn directly
-                turnManager.ChangeCurrentTurn(newTurn);
+                turnSystem.SetTurn(newTurn);
                 Debug.Log($"[HOST] Changed turn to {(newTurn == 0 ? "White" : "Black")} after delay");
             } else {
                 // If we're the client, request turn change from server
-                int currentTurn = turnManager.currentTurn.Value;
-                turnManager.RequestTurnChangeServerRpc(currentTurn, newTurn);
+                int currentTurn = turnSystem.currentTurn.Value;
+                turnSystem.RequestTurnChangeServerRpc(currentTurn, newTurn);
                 Debug.Log($"[CLIENT] Requested turn change to {(newTurn == 0 ? "White" : "Black")} after delay");
             }
             

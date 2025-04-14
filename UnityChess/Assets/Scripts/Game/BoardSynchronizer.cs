@@ -27,6 +27,9 @@ public class BoardSynchronizer : NetworkBehaviour
     
     // Reference to the OnPieceMoved method in GameManager using reflection
     private MethodInfo onPieceMovedMethod;
+    
+    // Track which moves we've already processed to prevent double processing
+    private HashSet<string> processedMoves = new HashSet<string>();
 
     private void Awake()
     {
@@ -85,6 +88,25 @@ public class BoardSynchronizer : NetworkBehaviour
     /// </summary>
     private void OnVisualPieceMoved(Square startSquare, Transform pieceTransform, Transform endSquareTransform, Piece promotionPiece = null)
     {
+        // Create a unique identifier for this move to track if we've processed it
+        string moveId = $"{startSquare}-{endSquareTransform.name}";
+        
+        // Skip if we've already processed this exact move recently
+        if (processedMoves.Contains(moveId))
+        {
+            if (verbose) Debug.Log($"[BoardSynchronizer] Skipping already processed move: {moveId}");
+            return;
+        }
+        
+        // Add to processed moves
+        processedMoves.Add(moveId);
+        
+        // Remove old processed moves if the list gets too large
+        if (processedMoves.Count > 20)
+        {
+            processedMoves.Clear();
+        }
+        
         Debug.Log($"[BoardSynchronizer] OnVisualPieceMoved - From: {startSquare}, To: {endSquareTransform.name}, IsHost: {IsHost}, IsServer: {IsServer}");
         
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient)
@@ -102,18 +124,14 @@ public class BoardSynchronizer : NetworkBehaviour
                 // Send direct move sync to the host
                 NotifyHostOfMoveServerRpc(startSquare.ToString(), endSquare.ToString());
                 
-                // FIX: Begin tracking the move in ImprovedTurnSystem
+                // Begin tracking the move in ImprovedTurnSystem
                 if (turnSystem != null)
                 {
                     turnSystem.BeginMove();
                 }
                 
-                // Request turn change after move completes
-                if (turnSystem != null)
-                {
-                    // End the move, which will trigger a turn change
-                    StartCoroutine(EndMoveAfterDelay(0.5f));
-                }
+                // End the move after delay
+                StartCoroutine(EndMoveAfterDelay(0.5f));
             }
             
             // If host (White player) made a move
@@ -122,18 +140,14 @@ public class BoardSynchronizer : NetworkBehaviour
                 // Send direct move sync to the client
                 NotifyClientOfMoveClientRpc(startSquare.ToString(), endSquare.ToString());
                 
-                // FIX: Begin tracking the move in ImprovedTurnSystem
+                // Begin tracking the move in ImprovedTurnSystem
                 if (turnSystem != null)
                 {
                     turnSystem.BeginMove();
                 }
                 
-                // Change turn after move completes
-                if (turnSystem != null)
-                {
-                    // End the move, which will trigger a turn change
-                    StartCoroutine(EndMoveAfterDelay(0.5f));
-                }
+                // End the move after delay
+                StartCoroutine(EndMoveAfterDelay(0.5f));
             }
         }
     }
@@ -194,7 +208,7 @@ public class BoardSynchronizer : NetworkBehaviour
             SyncBoardStateClientRpc(currentState);
             if (verbose) Debug.Log("[SERVER] Move executed, board state synchronized");
             
-            // FIX: Also sync turn state with game state
+            // Also sync turn state with game state
             if (turnSystem != null) {
                 Side currentSide = gameManager.SideToMove;
                 int newTurnValue = currentSide == Side.White ? 0 : 1;
@@ -213,6 +227,19 @@ public class BoardSynchronizer : NetworkBehaviour
         
         try
         {
+            // Create a unique identifier for this move
+            string moveId = $"{startSquareStr}-{endSquareStr}";
+            
+            // Skip if we've already processed this exact move recently
+            if (processedMoves.Contains(moveId))
+            {
+                if (verbose) Debug.Log($"[DIRECT MOVE] Skipping already processed move: {moveId}");
+                return;
+            }
+            
+            // Add to processed moves
+            processedMoves.Add(moveId);
+            
             // Convert squares
             Square startSquare = SquareUtil.StringToSquare(startSquareStr);
             Square endSquare = SquareUtil.StringToSquare(endSquareStr);
@@ -249,6 +276,15 @@ public class BoardSynchronizer : NetworkBehaviour
                 }
             }
             
+            // FIXED: Also update the game state to match the visual representation
+            // Check if the move is valid in the game logic
+            if (gameManager.TryGetLegalMove(startSquare, endSquare, out Movement move))
+            {
+                // Execute the move in the game logic
+                gameManager.ExecuteMove(move);
+                Debug.Log($"[DIRECT MOVE] Applied move in game logic from {startSquareStr} to {endSquareStr}");
+            }
+            
             // Force refresh piece interactivity
             networkManager.RefreshAllPiecesInteractivity();
         }
@@ -274,6 +310,16 @@ public class BoardSynchronizer : NetworkBehaviour
                 // Use a short delay to ensure the game state is fully updated
                 StartCoroutine(DelayedRefresh());
             }
+            
+            // FIXED: Explicitly update turn state to match the game state
+            if (turnSystem != null)
+            {
+                Side currentSide = gameManager.SideToMove;
+                int newTurnValue = currentSide == Side.White ? 0 : 1;
+                
+                if (verbose) Debug.Log($"[CLIENT] Updating turn to match game state: {currentSide} ({newTurnValue})");
+                turnSystem.currentTurn.Value = newTurnValue;
+            }
         }
     }
 
@@ -296,12 +342,22 @@ public class BoardSynchronizer : NetworkBehaviour
             // Directly update the piece position on the host
             DirectlyMovePiece(startSquare, endSquare);
             
-            // FIX: Ensure proper turn state after receiving a move from client
+            // FIXED: Ensure proper turn state after receiving a move from client
             if (turnSystem != null)
             {
+                Debug.Log("[SERVER] Client (Black) moved, changing turn to White's turn");
+                // Lock movement briefly to prevent any race conditions
+                turnSystem.LockPiecesForTransition(0.2f);
                 // After client (Black) moves, it should be White's turn
                 turnSystem.SetTurn(0); // Change to White (0)
+                
+                // Force refresh pieces on both sides
+                turnSystem.ForceRefreshPiecesClientRpc();
             }
+            
+            // Force board state sync to ensure client and host are in sync
+            string currentState = gameManager.SerializeGame();
+            SyncBoardStateClientRpc(currentState);
         }
     }
     
@@ -318,11 +374,15 @@ public class BoardSynchronizer : NetworkBehaviour
             // Directly update the piece position on the client
             DirectlyMovePiece(startSquare, endSquare);
             
-            // FIX: Ensure turn changes on client after receiving a move from host
+            // FIXED: Ensure turn changes on client after receiving a move from host
             if (turnSystem != null)
             {
+                Debug.Log("[CLIENT] Host (White) moved, changing turn to Black's turn");
                 // After host (White) moves, it should be Black's turn
                 turnSystem.SetTurn(1); // Change to Black (1)
+                
+                // Request turn change on server
+                turnSystem.RequestTurnChangeServerRpc(0, 1);
             }
         }
     }

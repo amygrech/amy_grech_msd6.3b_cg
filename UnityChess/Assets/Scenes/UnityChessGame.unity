@@ -273,6 +273,8 @@ MonoBehaviour:
   useSessionManager: 1
   useNetworkErrorHandler: 1
   useReconnectionManager: 1
+  gameEndDetector: {fileID: 0}
+  gameEndPanelPrefab: {fileID: 0}
   verbose: 1
 --- !u!114 &43526661
 MonoBehaviour:
@@ -1680,7 +1682,6 @@ GameObject:
   - component: {fileID: 823356700}
   - component: {fileID: 823356701}
   - component: {fileID: 823356702}
-  - component: {fileID: 823356703}
   m_Layer: 0
   m_Name: DLCStoreManager
   m_TagString: Untagged
@@ -1739,20 +1740,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   hostImage: {fileID: 1913184368}
   clientImage: {fileID: 1478158563}
---- !u!114 &823356703
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 823356699}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 16bc6a4e64fa046ea8a15c9421cefc58, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  storeManager: {fileID: 0}
-  analyticsManager: {fileID: 0}
 --- !u!114 &854423559 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 7463109367895200373, guid: caf93e4ddc2f0544cbddf4e2facb7fd7,
@@ -2869,8 +2856,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 70e90e7c263164f3f9f09348cc146b07, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  topDLCsText: {fileID: 0}
-  winLossText: {fileID: 0}
+  topDLCsText: {fileID: 261915675}
+  winLossText: {fileID: 1594174425}
 --- !u!1 &1340335443
 GameObject:
   m_ObjectHideFlags: 0
@@ -3573,9 +3560,9 @@ GameObject:
   - component: {fileID: 1589140729}
   - component: {fileID: 1589140726}
   - component: {fileID: 1589140724}
-  - component: {fileID: 1589140725}
   - component: {fileID: 1589140728}
   - component: {fileID: 1589140730}
+  - component: {fileID: 1589140731}
   m_Layer: 0
   m_Name: ChessNetworkManager
   m_TagString: Untagged
@@ -3604,23 +3591,6 @@ MonoBehaviour:
   SpawnWithObservers: 1
   DontDestroyWithOwner: 0
   AutoObjectParentSync: 1
---- !u!114 &1589140725
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1589140723}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a0d02ce9ce1f74963811c6c40c1f4579, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  currentTurn:
-    m_InternalValue: 0
-  canMove:
-    m_InternalValue: 1
-  debugMode: 1
 --- !u!114 &1589140726
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3656,6 +3626,8 @@ MonoBehaviour:
   useSessionManager: 1
   useNetworkErrorHandler: 1
   useReconnectionManager: 1
+  gameEndDetector: {fileID: 0}
+  gameEndPanelPrefab: {fileID: 0}
   verbose: 1
 --- !u!4 &1589140727
 Transform:
@@ -3715,6 +3687,28 @@ MonoBehaviour:
   canMove:
     m_InternalValue: 1
   verbose: 1
+  moveInProgress:
+    m_InternalValue: 0
+  lockInteractivity:
+    m_InternalValue: 0
+  moveCooldown: 0.5
+--- !u!114 &1589140731
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1589140723}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0d02ce9ce1f74963811c6c40c1f4579, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  currentTurn:
+    m_InternalValue: 0
+  canMove:
+    m_InternalValue: 1
+  debugMode: 1
 --- !u!1 &1594174423
 GameObject:
   m_ObjectHideFlags: 0
@@ -6819,7 +6813,7 @@ PrefabInstance:
     - target: {fileID: 6810705476634634377, guid: caf93e4ddc2f0544cbddf4e2facb7fd7,
         type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -0.000061035156
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6823757786411297794, guid: caf93e4ddc2f0544cbddf4e2facb7fd7,
         type: 3}
