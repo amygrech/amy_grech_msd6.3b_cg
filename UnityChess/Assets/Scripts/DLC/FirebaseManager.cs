@@ -97,6 +97,8 @@ public class FirebaseManager : MonoBehaviour
     public void LogPurchaseEvent(string itemId, string itemName, double price)
     {
         Debug.Log($"[Unity Analytics] Logging purchase: {itemName} for {price}");
+        
+        // Log to Unity Analytics
         Analytics.CustomEvent("purchase", new Dictionary<string, object>
         {
             {"item_id", itemId},
@@ -104,20 +106,73 @@ public class FirebaseManager : MonoBehaviour
             {"price", price},
             {"currency", "credits"}
         });
+        
+        // Store in Firebase Realtime Database
+        if (IsInitialized && Database != null)
+        {
+            string purchaseId = Guid.NewGuid().ToString();
+            Dictionary<string, object> purchaseData = new Dictionary<string, object>
+            {
+                {"avatarId", itemId},
+                {"avatarName", itemName},
+                {"price", price},
+                {"timestamp", ServerValue.Timestamp},
+                {"userId", SystemInfo.deviceUniqueIdentifier} // In a real app, use actual user ID
+            };
+            
+            Database.Child("purchases").Child(purchaseId).SetValueAsync(purchaseData)
+                .ContinueWithOnMainThread(task => {
+                    if (task.IsFaulted)
+                    {
+                        Debug.LogError($"Error saving purchase data: {task.Exception}");
+                    }
+                    else
+                    {
+                        Debug.Log("Purchase data saved to Firebase Database");
+                    }
+                });
+        }
     }
 
     public void LogGameStartEvent(string matchId)
     {
         Debug.Log($"[Unity Analytics] Logging game start: {matchId}");
+        
+        // Log to Unity Analytics
         Analytics.CustomEvent("game_start", new Dictionary<string, object>
         {
             {"match_id", matchId}
         });
+        
+        // Store in Firebase Realtime Database
+        if (IsInitialized && Database != null)
+        {
+            Dictionary<string, object> gameData = new Dictionary<string, object>
+            {
+                {"start_time", ServerValue.Timestamp},
+                {"status", "in_progress"},
+                {"host_id", SystemInfo.deviceUniqueIdentifier} // In a real app, use actual user IDs
+            };
+            
+            Database.Child("games").Child(matchId).UpdateChildrenAsync(gameData)
+                .ContinueWithOnMainThread(task => {
+                    if (task.IsFaulted)
+                    {
+                        Debug.LogError($"Error saving game start data: {task.Exception}");
+                    }
+                    else
+                    {
+                        Debug.Log("Game start data saved to Firebase Database");
+                    }
+                });
+        }
     }
 
     public void LogGameEndEvent(string matchId, string result, int moveCount, double duration)
     {
         Debug.Log($"[Unity Analytics] Logging game end: {matchId}, result: {result}");
+        
+        // Log to Unity Analytics
         Analytics.CustomEvent("game_end", new Dictionary<string, object>
         {
             {"match_id", matchId},
@@ -125,6 +180,31 @@ public class FirebaseManager : MonoBehaviour
             {"move_count", moveCount},
             {"duration_seconds", duration}
         });
+        
+        // Store in Firebase Realtime Database
+        if (IsInitialized && Database != null)
+        {
+            Dictionary<string, object> gameEndData = new Dictionary<string, object>
+            {
+                {"end_time", ServerValue.Timestamp},
+                {"status", "completed"},
+                {"result", result},
+                {"move_count", moveCount},
+                {"duration_seconds", duration}
+            };
+            
+            Database.Child("games").Child(matchId).UpdateChildrenAsync(gameEndData)
+                .ContinueWithOnMainThread(task => {
+                    if (task.IsFaulted)
+                    {
+                        Debug.LogError($"Error saving game end data: {task.Exception}");
+                    }
+                    else
+                    {
+                        Debug.Log("Game end data saved to Firebase Database");
+                    }
+                });
+        }
     }
 
     #endregion
@@ -249,6 +329,80 @@ public class FirebaseManager : MonoBehaviour
             });
     }
     
+    // Track popular opening moves in Firebase
+    public void LogChessMove(string matchId, string pieceType, string from, string to, int moveNumber)
+    {
+        if (!IsInitialized || Database == null)
+        {
+            Debug.LogError("Firebase Database not initialized!");
+            return;
+        }
+        
+        Dictionary<string, object> moveData = new Dictionary<string, object>
+        {
+            {"piece_type", pieceType},
+            {"from", from},
+            {"to", to},
+            {"move_number", moveNumber},
+            {"timestamp", ServerValue.Timestamp}
+        };
+        
+        string moveId = Guid.NewGuid().ToString();
+        Database.Child("games").Child(matchId).Child("moves").Child(moveId).SetValueAsync(moveData)
+            .ContinueWithOnMainThread(task => {
+                if (task.IsFaulted)
+                {
+                    Debug.LogError($"Error logging chess move: {task.Exception}");
+                }
+                else
+                {
+                    // For the first few moves, log them as opening moves for analytics
+                    if (moveNumber <= 4)
+                    {
+                        LogOpeningMove(pieceType, from, to, moveNumber);
+                    }
+                }
+            });
+    }
+    
+    // Track popular opening moves separately for analytics
+    private void LogOpeningMove(string pieceType, string from, string to, int moveNumber)
+    {
+        string moveNotation = $"{pieceType}:{from}-{to}";
+        
+        // First, check if this opening move exists in the database
+        Database.Child("opening_moves").Child(moveNotation).GetValueAsync()
+            .ContinueWithOnMainThread(task => {
+                if (task.IsFaulted)
+                {
+                    Debug.LogError($"Error checking opening move: {task.Exception}");
+                }
+                else if (task.IsCompleted)
+                {
+                    DataSnapshot snapshot = task.Result;
+                    int count = 1;
+                    
+                    if (snapshot.Exists && snapshot.Child("count").Exists)
+                    {
+                        // If it exists, increment the count
+                        count = Convert.ToInt32(snapshot.Child("count").Value) + 1;
+                    }
+                    
+                    Dictionary<string, object> moveData = new Dictionary<string, object>
+                    {
+                        {"piece_type", pieceType},
+                        {"from", from},
+                        {"to", to},
+                        {"move_number", moveNumber},
+                        {"count", count},
+                        {"last_played", ServerValue.Timestamp}
+                    };
+                    
+                    Database.Child("opening_moves").Child(moveNotation).SetValueAsync(moveData);
+                }
+            });
+    }
+    
     IEnumerator SaveTestGameState()
     {
         yield return new WaitUntil(() =>
@@ -267,4 +421,4 @@ public class FirebaseManager : MonoBehaviour
     }
 
     #endregion
-} 
+}

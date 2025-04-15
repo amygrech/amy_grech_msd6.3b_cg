@@ -251,3 +251,7 @@ public class BoardManager : MonoBehaviourSingleton<BoardManager> {
 	public GameObject GetSquareGOByPosition(Square position) =>
 		Array.Find(allSquaresGO, go => go.name == SquareToString(position));
 }
+
+
+
+

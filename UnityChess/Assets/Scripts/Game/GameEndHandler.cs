@@ -2,24 +2,17 @@ using UnityEngine;
 using Unity.Netcode;
 using UnityChess;
 using System.Collections;
-using TMPro;
-using UnityEngine.UI;
 
 /// <summary>
-/// Detects and handles game-end conditions (checkmate, stalemate, resignation)
-/// in a networked chess game. Ensures proper synchronization across clients.
+/// Handles game end conditions (checkmate, stalemate, resignation) in a networked chess game.
+/// Detects game-ending states, broadcasts them to all clients, and ensures graceful session termination.
 /// </summary>
-public class NetworkGameEndDetector : NetworkBehaviour
+public class GameEndHandler : NetworkBehaviour
 {
-    [Header("Game References")]
+    [Header("References")]
     [SerializeField] private ImprovedTurnSystem turnSystem;
     [SerializeField] private BoardSynchronizer boardSynchronizer;
-    
-    [Header("UI Elements")]
-    [SerializeField] private GameObject gameEndPanel;
-    [SerializeField] private Text gameEndMessageText;
-    [SerializeField] private Button resignButton;
-    [SerializeField] private Button rematchButton;
+    [SerializeField] private NetworkGameEndDetector gameEndDetector; // Optional: use if already in scene
     
     // Network variable to track game end state
     public NetworkVariable<GameEndState> gameEndState = new NetworkVariable<GameEndState>(
@@ -52,15 +45,13 @@ public class NetworkGameEndDetector : NetworkBehaviour
         None,
         Checkmate,
         Stalemate,
-        Resignation,
-        Timeout,
-        Disconnection
+        Resignation
     }
     
     private bool isMonitoring = false;
     private float checkInterval = 0.5f; // How often to check for game end conditions
     
-    private void Awake()
+    void Awake()
     {
         // Find references if not set in inspector
         if (turnSystem == null)
@@ -69,16 +60,8 @@ public class NetworkGameEndDetector : NetworkBehaviour
         if (boardSynchronizer == null)
             boardSynchronizer = FindObjectOfType<BoardSynchronizer>();
             
-        // Ensure game end panel is initially hidden
-        if (gameEndPanel != null)
-            gameEndPanel.SetActive(false);
-            
-        // Set up button listeners
-        if (resignButton != null)
-            resignButton.onClick.AddListener(OnResignButtonClicked);
-            
-        if (rematchButton != null)
-            rematchButton.onClick.AddListener(OnRematchButtonClicked);
+        if (gameEndDetector == null)
+            gameEndDetector = FindObjectOfType<NetworkGameEndDetector>();
     }
     
     public override void OnNetworkSpawn()
@@ -120,7 +103,7 @@ public class NetworkGameEndDetector : NetworkBehaviour
         // Wait for game to fully initialize
         yield return new WaitForSeconds(1.0f);
         
-        Debug.Log("[NetworkGameEndDetector] Started monitoring for game end conditions");
+        Debug.Log("[GameEndHandler] Started monitoring for game end conditions");
         
         while (isMonitoring)
         {
@@ -151,6 +134,10 @@ public class NetworkGameEndDetector : NetworkBehaviour
     /// </summary>
     private void CheckForGameEndConditions()
     {
+        // Skip if we're not on server or if game is already over
+        if ((!IsServer && !IsHost) || gameEndState.Value.IsGameOver)
+            return;
+            
         HalfMove latestHalfMove = default;
         bool hasCurrent = GameManager.Instance.HalfMoveTimeline.TryGetCurrent(out latestHalfMove);
     
@@ -165,7 +152,7 @@ public class NetworkGameEndDetector : NetworkBehaviour
         // Check for checkmate
         if (latestHalfMove.CausedCheckmate)
         {
-            Debug.Log($"[NetworkGameEndDetector] Checkmate detected! Winner: {previousSide}");
+            Debug.Log($"[SERVER] Checkmate detected! Winner: {previousSide}");
         
             newState.IsGameOver = true;
             newState.EndReason = GameEndReason.Checkmate;
@@ -175,11 +162,14 @@ public class NetworkGameEndDetector : NetworkBehaviour
         
             // Notify all clients about game end
             NotifyGameEndClientRpc(newState.WinningSide, (int)GameEndReason.Checkmate);
+            
+            // Lock game interaction
+            LockGameInteraction();
         }
         // Check for stalemate
         else if (latestHalfMove.CausedStalemate)
         {
-            Debug.Log("[NetworkGameEndDetector] Stalemate detected!");
+            Debug.Log("[SERVER] Stalemate detected!");
         
             newState.IsGameOver = true;
             newState.EndReason = GameEndReason.Stalemate;
@@ -189,6 +179,9 @@ public class NetworkGameEndDetector : NetworkBehaviour
         
             // Notify all clients about game end
             NotifyGameEndClientRpc(-1, (int)GameEndReason.Stalemate);
+            
+            // Lock game interaction
+            LockGameInteraction();
         }
     }
     
@@ -199,10 +192,19 @@ public class NetworkGameEndDetector : NetworkBehaviour
     {
         if (newValue.IsGameOver && !previousValue.IsGameOver)
         {
-            // Game just ended, update UI
-            DisplayGameEndMessage(newValue.WinningSide, newValue.EndReason);
+            // Game just ended
+            string winner = newValue.WinningSide == 0 ? "White" : 
+                           newValue.WinningSide == 1 ? "Black" : "None";
+                           
+            string reason = newValue.EndReason.ToString();
             
-            // Disable all piece movement
+            Debug.Log($"[GAME END] Game over! Winner: {winner}, Reason: {reason}");
+            
+            // If we have the network end detector, let it handle UI
+            if (gameEndDetector != null)
+                return;
+                
+            // Otherwise lock interaction
             LockGameInteraction();
         }
     }
@@ -223,92 +225,18 @@ public class NetworkGameEndDetector : NetworkBehaviour
     }
     
     /// <summary>
-    /// Displays the appropriate game end message based on the end reason
+    /// Allows a player to resign from the game
     /// </summary>
-    private void DisplayGameEndMessage(int winningSide, GameEndReason endReason)
-    {
-        if (gameEndPanel == null || gameEndMessageText == null)
-            return;
-            
-        string message = "";
-        
-        switch (endReason)
-        {
-            case GameEndReason.Checkmate:
-                string winner = winningSide == 0 ? "White" : "Black";
-                message = $"Checkmate! {winner} wins the game.";
-                break;
-                
-            case GameEndReason.Stalemate:
-                message = "Stalemate! The game is a draw.";
-                break;
-                
-            case GameEndReason.Resignation:
-                string resignedSide = winningSide == 0 ? "Black" : "White";
-                string winningSideName = winningSide == 0 ? "White" : "Black";
-                message = $"{resignedSide} resigned. {winningSideName} wins the game.";
-                break;
-                
-            case GameEndReason.Timeout:
-                string timeoutSide = winningSide == 0 ? "Black" : "White";
-                string timeoutWinner = winningSide == 0 ? "White" : "Black";
-                message = $"{timeoutSide} ran out of time. {timeoutWinner} wins the game.";
-                break;
-                
-            case GameEndReason.Disconnection:
-                string disconnectedSide = winningSide == 0 ? "Black" : "White";
-                string disconnectionWinner = winningSide == 0 ? "White" : "Black";
-                message = $"{disconnectedSide} disconnected. {disconnectionWinner} wins the game.";
-                break;
-                
-            default:
-                message = "Game Over";
-                break;
-        }
-        
-        // Update UI text
-        gameEndMessageText.text = message;
-        
-        // Show game end panel
-        gameEndPanel.SetActive(true);
-        
-        Debug.Log($"[NetworkGameEndDetector] Game end message displayed: {message}");
-    }
-    
-    /// <summary>
-    /// Handles resignation button click
-    /// </summary>
-    private void OnResignButtonClicked()
+    public void ResignGame()
     {
         // Get the local player's side
         Side localPlayerSide = ChessNetworkManager.Instance.GetLocalPlayerSide();
         int resigningSideInt = localPlayerSide == Side.White ? 0 : 1;
         
-        Debug.Log($"[NetworkGameEndDetector] Player {localPlayerSide} is resigning");
+        Debug.Log($"[GameEndHandler] Player {localPlayerSide} is resigning");
         
         // Request resignation on the server
         RequestResignationServerRpc(resigningSideInt);
-    }
-    
-    /// <summary>
-    /// Handles rematch button click
-    /// </summary>
-    private void OnRematchButtonClicked()
-    {
-        // Request rematch on the server
-        RequestRematchServerRpc();
-    }
-    
-    /// <summary>
-    /// Handles return to lobby button click
-    /// </summary>
-    private void OnReturnToLobbyButtonClicked()
-    {
-        // Disconnect from the current session
-        if (ChessNetworkManager.Instance != null)
-        {
-            ChessNetworkManager.Instance.Disconnect();
-        }
     }
     
     /// <summary>
@@ -340,34 +268,9 @@ public class NetworkGameEndDetector : NetworkBehaviour
         
         // Notify all clients
         NotifyGameEndClientRpc(winningSide, (int)GameEndReason.Resignation);
-    }
-    
-    /// <summary>
-    /// Server RPC for client to request a rematch
-    /// </summary>
-    [ServerRpc(RequireOwnership = false)]
-    public void RequestRematchServerRpc()
-    {
-        if (!IsServer && !IsHost)
-            return;
-            
-        Debug.Log("[SERVER] Rematch requested");
         
-        // Reset the game end state
-        GameEndState newState = new GameEndState
-        {
-            IsGameOver = false,
-            WinningSide = -1,
-            EndReason = GameEndReason.None
-        };
-        
-        gameEndState.Value = newState;
-        
-        // Start a new game
-        GameManager.Instance.StartNewGame();
-        
-        // Tell clients to reset their game state
-        ResetGameClientRpc();
+        // Lock game interaction
+        LockGameInteraction();
     }
     
     /// <summary>
@@ -378,92 +281,16 @@ public class NetworkGameEndDetector : NetworkBehaviour
     {
         GameEndReason endReason = (GameEndReason)endReasonInt;
         
-        Debug.Log($"[CLIENT] Game ended - Winner: {(winningSide == 0 ? "White" : winningSide == 1 ? "Black" : "None")}, " +
-                 $"Reason: {endReason}");
+        string winnerText = winningSide == 0 ? "White" : 
+                          winningSide == 1 ? "Black" : "None";
+                          
+        Debug.Log($"[CLIENT] Game ended - Winner: {winnerText}, Reason: {endReason}");
         
-        // Update local UI
-        DisplayGameEndMessage(winningSide, endReason);
-        
-        // Lock game interaction
-        LockGameInteraction();
-    }
-    
-    /// <summary>
-    /// Client RPC to reset the game for a rematch
-    /// </summary>
-    [ClientRpc]
-    public void ResetGameClientRpc()
-    {
-        Debug.Log("[CLIENT] Resetting game for rematch");
-        
-        // Hide the game end panel
-        if (gameEndPanel != null)
-            gameEndPanel.SetActive(false);
-            
-        // Refresh all pieces interactivity
-        if (ChessNetworkManager.Instance != null)
-            ChessNetworkManager.Instance.RefreshAllPiecesInteractivity();
-            
-        // Reset turn system lock
-        if (turnSystem != null)
-            turnSystem.lockInteractivity.Value = false;
-    }
-    
-    /// <summary>
-    /// Reports a player disconnection which may end the game
-    /// </summary>
-    public void ReportPlayerDisconnection(Side disconnectedSide)
-    {
-        if (!IsServer && !IsHost)
+        // Lock game interaction if we're not the host (host does this in server code)
+        if (!IsHost && !IsServer)
         {
-            // Send request to server
-            int disconnectedSideInt = disconnectedSide == Side.White ? 0 : 1;
-            ReportDisconnectionServerRpc(disconnectedSideInt);
-            return;
+            LockGameInteraction();
         }
-        
-        // Server implementation
-        HandlePlayerDisconnection(disconnectedSide);
-    }
-    
-    /// <summary>
-    /// Server RPC to report a player disconnection
-    /// </summary>
-    [ServerRpc(RequireOwnership = false)]
-    private void ReportDisconnectionServerRpc(int disconnectedSide)
-    {
-        if (!IsServer && !IsHost)
-            return;
-            
-        Side playerSide = disconnectedSide == 0 ? Side.White : Side.Black;
-        HandlePlayerDisconnection(playerSide);
-    }
-    
-    /// <summary>
-    /// Handles player disconnection on the server
-    /// </summary>
-    private void HandlePlayerDisconnection(Side disconnectedSide)
-    {
-        if (gameEndState.Value.IsGameOver)
-            return; // Game already over
-            
-        Debug.Log($"[SERVER] Player {disconnectedSide} has disconnected");
-        
-        // Set winner as the opposite side
-        int winningSide = disconnectedSide == Side.White ? 1 : 0;
-        
-        // Update the game end state
-        GameEndState newState = new GameEndState
-        {
-            IsGameOver = true,
-            WinningSide = winningSide,
-            EndReason = GameEndReason.Disconnection
-        };
-        
-        gameEndState.Value = newState;
-        
-        // Notify all clients
-        NotifyGameEndClientRpc(winningSide, (int)GameEndReason.Disconnection);
     }
     
     /// <summary>

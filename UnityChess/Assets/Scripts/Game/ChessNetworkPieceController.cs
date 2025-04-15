@@ -115,7 +115,7 @@ public class ChessNetworkPieceController : MonoBehaviour
         {
             isPlayersTurn = turnSystem.CanPlayerMove(localPlayerSide);
             
-            // If turn interactivity is locked, no piece can move
+            // FIX: If turn interactivity is locked, no piece can move
             if (turnSystem.lockInteractivity.Value || turnSystem.moveInProgress.Value)
             {
                 isPlayersTurn = false;
@@ -130,7 +130,7 @@ public class ChessNetworkPieceController : MonoBehaviour
         // Only allow move if both conditions are true
         canMove = isPlayersPiece && isPlayersTurn;
     
-        // Only log and update if the state has changed or in debug mode
+        // Only log and update if the state has changed
         if (lastInteractiveState != canMove || debugMode) 
         {
             if (debugMode)

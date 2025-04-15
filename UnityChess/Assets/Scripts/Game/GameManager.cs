@@ -12,7 +12,9 @@ using Unity.Netcode;
 /// Inherits from a singleton base class to ensure a single instance throughout the application.
 /// </summary>
 public class GameManager : MonoBehaviourSingleton<GameManager> {
-	// Events signalling various game state changes.
+	public event Action GameStartedEvent;
+	public event Action<HalfMove, Piece> HalfMoveMadeEvent;
+	public event Action<Side> GameOverEvent;
 	public static event Action NewGameStartedEvent;
 	public static event Action GameEndedEvent;
 	public static event Action GameResetToHalfMoveEvent;
@@ -127,6 +129,8 @@ public class GameManager : MonoBehaviourSingleton<GameManager> {
     
 		// Begin a new game.
 		StartNewGame();
+		
+		GameStartedEvent?.Invoke();
     
 #if DEBUG_VIEW
     // Enable debug view if compiled with DEBUG_VIEW flag.
@@ -415,4 +419,5 @@ private async void OnPieceMoved(Square movedPieceInitialSquare, Transform movedP
 	{
 		return game.TryGetLegalMove(startSquare, endSquare, out move);
 	}
+	
 }
