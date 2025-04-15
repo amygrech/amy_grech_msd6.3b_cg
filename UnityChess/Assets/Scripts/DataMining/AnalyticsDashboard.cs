@@ -17,14 +17,12 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
     [Header("Analytics Panel")]
     [SerializeField] private GameObject analyticsPanel; // Will always be shown
     [SerializeField] private Button refreshButton;
-    [SerializeField] private GameObject loadingIndicator;
 
     [Header("Analytics Data Display")]
     [SerializeField] private TextMeshProUGUI topDLCsText;
     [SerializeField] private TextMeshProUGUI winLossText;
-    [SerializeField] private TextMeshProUGUI matchStatsText;
-    [SerializeField] private TextMeshProUGUI openingMovesText;
     [SerializeField] private TextMeshProUGUI totalGamesText; // Total games text display
+    [SerializeField] private TextMeshProUGUI totalPurchasesText; // For DLC purchases count
     
     // Track the most recently saved match ID
     private string lastSavedMatchId;
@@ -32,11 +30,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
     [Header("Game State Management")]
     [SerializeField] private Button saveGameButton;
     [SerializeField] private Button loadButton; // The Load button that loads the latest saved game
-    [SerializeField] private TextMeshProUGUI saveLoadStatusText; // Optional status message
-
-    [Header("Saved Game Items")]
-    [SerializeField] private Transform savedGamesContainer; // Parent transform for saved game items
-    [SerializeField] private GameObject savedGameItemPrefab; // Prefab for individual saved game items
 
     // List of currently displayed saved game items
     private List<GameObject> savedGameItems = new List<GameObject>();
@@ -83,12 +76,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
         isDLCDataLoaded = false;
         isGameDataLoaded = false;
         isOpeningDataLoaded = false;
-        
-        // Show loading indicator if available
-        if (loadingIndicator != null)
-        {
-            loadingIndicator.SetActive(true);
-        }
         
         // Load DLC purchase data
         LoadTopDLCs();
@@ -170,6 +157,12 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
                     }
                 }
                 
+                if (totalPurchasesText != null)
+                {
+                    // Use this to update the total purchases count
+                    totalPurchasesText.text = $"Total DLC Purchases: {totalPurchases}";
+                }
+                
                 // Create a sorted list by purchase count
                 var sortedAvatars = avatarCounts.OrderByDescending(kvp => kvp.Value).ToList();
                 
@@ -201,7 +194,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
         if (FirebaseManager.Instance == null || !FirebaseManager.Instance.IsInitialized)
         {
             Debug.LogError("Firebase not initialized!");
-            matchStatsText.text = "Firebase not initialized. Cannot load match data.";
             winLossText.text = "Firebase not initialized.";
             isGameDataLoaded = true;
             CheckAllDataLoaded();
@@ -213,7 +205,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
             if (task.IsFaulted)
             {
                 Debug.LogError($"Error fetching game data: {task.Exception}");
-                matchStatsText.text = "Error loading match data. Please try again.";
                 winLossText.text = "Error loading data.";
                 isGameDataLoaded = true;
                 CheckAllDataLoaded();
@@ -322,33 +313,9 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
                 // Update win/loss text
                 winLossText.text = $"Win/Loss/Draw: {wins}/{losses}/{draws}";
                 
-                // Update match stats text
-                matchStatsText.text = "Chess Match Statistics:\n";
-                matchStatsText.text += $"Total Games: {totalGames}\n";
-                matchStatsText.text += $"Completed: {completedGames}\n";
-                matchStatsText.text += $"In Progress: {inProgressGames}\n";
-                
-                if (gamesWithDuration > 0)
-                {
-                    float avgDuration = (float)totalDuration / gamesWithDuration;
-                    matchStatsText.text += $"Avg. Duration: {FormatTimeSpan(avgDuration)}\n";
-                }
-                
-                if (gamesWithMoves > 0)
-                {
-                    float avgMoves = (float)totalMoves / gamesWithMoves;
-                    matchStatsText.text += $"Avg. Moves: {avgMoves:F1}";
-                }
-                
-                // Update the total games text with highlighted formatting
                 if (totalGamesText != null)
                 {
-                    totalGamesText.text = $"TOTAL GAMES PLAYED: {totalGames}";
-                    
-                    // Optional: Make it stand out
-                    totalGamesText.fontSize = Mathf.Max(totalGamesText.fontSize, 24);
-                    totalGamesText.fontStyle = FontStyles.Bold;
-                    totalGamesText.color = new Color(0.2f, 0.6f, 1f); // Light blue color
+                    totalGamesText.text = $"Total Games Played: {totalGames}";
                 }
                 
                 isGameDataLoaded = true;
@@ -362,7 +329,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
         if (FirebaseManager.Instance == null || !FirebaseManager.Instance.IsInitialized)
         {
             Debug.LogError("Firebase not initialized!");
-            openingMovesText.text = "Firebase not initialized. Cannot load opening moves data.";
             isOpeningDataLoaded = true;
             CheckAllDataLoaded();
             return;
@@ -374,7 +340,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
             if (task.IsFaulted)
             {
                 Debug.LogError($"Error fetching opening moves data: {task.Exception}");
-                openingMovesText.text = "Error loading opening moves data. Please try again.";
                 isOpeningDataLoaded = true;
                 CheckAllDataLoaded();
                 return;
@@ -416,20 +381,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
                 // Sort by count descending
                 topOpenings.Sort((a, b) => b.Value.CompareTo(a.Value));
                 
-                openingMovesText.text = "Popular Opening Moves:\n";
-                
-                if (topOpenings.Count == 0)
-                {
-                    openingMovesText.text += "No opening moves recorded yet.";
-                }
-                else
-                {
-                    foreach (var move in topOpenings)
-                    {
-                        openingMovesText.text += $"{FormatMoveNotation(move.Key)}: {move.Value} times\n";
-                    }
-                }
-                
                 isOpeningDataLoaded = true;
                 CheckAllDataLoaded();
             }
@@ -440,12 +391,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
     {
         if (isDLCDataLoaded && isGameDataLoaded && isOpeningDataLoaded)
         {
-            // Hide loading indicator if available
-            if (loadingIndicator != null)
-            {
-                loadingIndicator.SetActive(false);
-            }
-            
             // Show total games in a more prominent way
             HighlightTotalGames();
         }
@@ -503,20 +448,10 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
             
             // Show feedback to user
             Debug.Log("Game state saved successfully!");
-            if (saveLoadStatusText != null)
-            {
-                saveLoadStatusText.text = "Game saved!";
-                saveLoadStatusText.color = Color.green;
-            }
         }
         else
         {
             Debug.LogError("BoardStateManager not found in the scene!");
-            if (saveLoadStatusText != null)
-            {
-                saveLoadStatusText.text = "Error: Could not save game!";
-                saveLoadStatusText.color = Color.red;
-            }
         }
     }
     
@@ -614,11 +549,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
         if (FirebaseManager.Instance == null || !FirebaseManager.Instance.IsInitialized)
         {
             Debug.LogError("Firebase not initialized, can't load latest game");
-            if (saveLoadStatusText != null)
-            {
-                saveLoadStatusText.text = "Error: Firebase not initialized!";
-                saveLoadStatusText.color = Color.red;
-            }
             return;
         }
         
@@ -630,11 +560,6 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
                 if (task.IsFaulted)
                 {
                     Debug.LogError($"Error finding latest game: {task.Exception}");
-                    if (saveLoadStatusText != null)
-                    {
-                        saveLoadStatusText.text = "Error: Could not find any games!";
-                        saveLoadStatusText.color = Color.red;
-                    }
                     return;
                 }
                 
@@ -657,21 +582,11 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
                     else
                     {
                         Debug.LogWarning("No saved games found with state data");
-                        if (saveLoadStatusText != null)
-                        {
-                            saveLoadStatusText.text = "No saved games found!";
-                            saveLoadStatusText.color = Color.yellow;
-                        }
                     }
                 }
                 else
                 {
                     Debug.LogWarning("No saved games found");
-                    if (saveLoadStatusText != null)
-                    {
-                        saveLoadStatusText.text = "No saved games found!";
-                        saveLoadStatusText.color = Color.yellow;
-                    }
                 }
             });
     }
@@ -686,38 +601,10 @@ public class AnalyticsDashboard : MonoBehaviourSingleton<AnalyticsDashboard>
         {
             Debug.Log($"Loading game: {gameId}");
             boardStateManager.LoadBoardState(gameId);
-            
-            if (saveLoadStatusText != null)
-            {
-                saveLoadStatusText.text = "Loading game...";
-                saveLoadStatusText.color = Color.yellow;
-                
-                // Update status text after a delay
-                StartCoroutine(UpdateStatusAfterDelay("Game loaded successfully!", Color.green, 2f));
-            }
         }
         else
         {
             Debug.LogError("BoardStateManager not found in the scene!");
-            if (saveLoadStatusText != null)
-            {
-                saveLoadStatusText.text = "Error: Could not load game!";
-                saveLoadStatusText.color = Color.red;
-            }
-        }
-    }
-    
-    /// <summary>
-    /// Updates status text after a delay
-    /// </summary>
-    private IEnumerator UpdateStatusAfterDelay(string message, Color color, float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        
-        if (saveLoadStatusText != null)
-        {
-            saveLoadStatusText.text = message;
-            saveLoadStatusText.color = color;
         }
     }
 
